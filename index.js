@@ -1,3 +1,4 @@
+import http from 'http';
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { supabase } from './supabase.js';
@@ -236,3 +237,7 @@ bot.launch(() => console.log('🤖 Бот Pry.it успішно запущено
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running!');
+}).listen(process.env.PORT || 3000);
