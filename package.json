@@ -1,0 +1,13 @@
+{
+  "name": "pry-it-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "telegraf": "^4.16.3",
+    "@supabase/supabase-js": "^2.39.8"
+  }
+}
