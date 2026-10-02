@@ -7,6 +7,9 @@ dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
+// 👑 ВСТАВ СВІЙ РЕАЛЬНИЙ TELEGRAM ID ТУТ (щоб адмін-панель була доступна тільки тобі)
+const ADMIN_ID = 123456789; // Заміни на свій справжній ID з профілю!
+
 // Налаштування покрокового діалогу для створення завдання
 const createTaskWizard = new Scenes.WizardScene(
     'createTaskWizard',
@@ -41,52 +44,12 @@ const createTaskWizard = new Scenes.WizardScene(
                     reward, 
                     description, 
                     status: 'open',
-                    creator_id: ctx.from.id // Зберігаємо ID творця для сповіщень
+                    creator_id: ctx.from.id 
                 }]);
 
             if (error) throw error;
 
-            await ctx.reply(`✅ Завдання "*${title}*" на суму $${reward} успішно створено і додано в базу!`, { parse_mode: 'Markdown' });
-        } catch (err) {
-            console.error('Помилка створення завдання:', err);
-            await ctx.reply('⚠️ Системна помилка збереження.');
-        }
-        return ctx.scene.leave();
-    }
-);
-
-createTaskWizard.use(async (ctx, next) => {
-    if (ctx.message && ctx.message.text === '/cancel') {
-        await ctx.reply('❌ Створення завдання скасовано.');
-        return ctx.scene.leave();
-    }
-    return next();
-});
-
-const stage = new Scenes.Stage([createTaskWizard]);
-bot.use(session());
-bot.use(stage.middleware());
-
-// Команда /start (головне меню з усіма опціями)
-bot.start(async (ctx) => {
-  const from = ctx.from;
-  
-  try {
-    const { error } = await supabase
-      .from('users')
-      .upsert(
-        { 
-          telegram_id: from.id, 
-          username: from.username || null, 
-          first_name: from.first_name || 'Користувач' 
-        },
-        { onConflict: 'telegram_id' }
-      );
-
-    if (error) throw error;
-    
-    await ctx.reply(
-        `👋 Привіт, ${from.first_name}! Я Pry.it — твій менеджер баунті-завдань.\nВаш профіль успішно зареєстровано в базі!\n\nОбери дію в меню нижче:`, 
+            await ctx.reply(`✅ Завдання "*${title}*" на суму $${reward} успішно створено і додано в базу!`, { parse_mode: 'Markdown' });         } catch (err) {             console.error('Помилка створення завдання:', err);             await ctx.reply('⚠️️ Системна помилка збереження.');         }         return ctx.scene.leave();     } );  createTaskWizard.use(async (ctx, next) => {     if (ctx.message && ctx.message.text === '/cancel') {         await ctx.reply('❌ Створення завдання скасовано.');         return ctx.scene.leave();     }     return next(); });  const stage = new Scenes.Stage([createTaskWizard]); bot.use(session()); bot.use(stage.middleware());  // Команда /start (головне меню) bot.start(async (ctx) => {   const from = ctx.from;      try {     const { error } = await supabase       .from('users')       .upsert(         {            telegram_id: from.id,            username: from.username \vert{}\vert{} null,            first_name: from.first_name \vert{}\vert{} 'Користувач'          },         { onConflict: 'telegram_id' }       );      if (error) throw error;          await ctx.reply(         `👋 Привіт, ${from.first_name}! Я Pry.it — твій менеджер баунті-завдань.\nВаш профіль успішно зареєстровано в базі!\n\nОбери дію в меню нижче:`, 
         {
             reply_markup: {
                 inline_keyboard: [
@@ -100,31 +63,7 @@ bot.start(async (ctx) => {
             }
         }
     );
-    console.log(`Новий користувач: ${from.first_name}`);
-    
-  } catch (err) {
-    console.error('Помилка БД:', err);
-    await ctx.reply('Сталася помилка під час підключення до бази даних.');
-  }
-});
-
-// Команда /bounties (перегляд доступних завдань з кнопками)
-bot.command('bounties', async (ctx) => {
-  try {
-    const { data: bounties, error } = await supabase
-      .from('bounties')
-      .select('*')
-      .eq('status', 'open');
-
-    if (error) throw error;
-
-    if (!bounties || bounties.length === 0) {
-      return ctx.reply('Наразі немає відкритих завдань.');
-    }
-
-    for (const bounty of bounties) {
-      const message = 
-        `🔹 *${bounty.title}*\n` +
+    console.log(`Новий користувач: ${from.first_name}`);        } catch (err) {     console.error('Помилка БД:', err);     await ctx.reply('Сталася помилка під час підключення до бази даних.');   } });  // Команда /bounties (перегляд доступних завдань) bot.command('bounties', async (ctx) => {   try {     const { data: bounties, error } = await supabase       .from('bounties')       .select('*')       .eq('status', 'open');      if (error) throw error;      if (!bounties \vert{}\vert{} bounties.length === 0) {       return ctx.reply('Наразі немає відкритих завдань.');     }      for (const bounty of bounties) {       const message =          `🔹 *${bounty.title}*\n` +
         `💰 Нагорода: **$${bounty.reward}**\n` +
         `📝 Опис: ${bounty.description}\n` +
         `🆔 ID завдання: \`${bounty.id}\``;
@@ -132,43 +71,7 @@ bot.command('bounties', async (ctx) => {
       await ctx.reply(message, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
-          [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
-        ])
-      });
-    }
-    
-  } catch (err) {
-    console.error('Помилка отримання завдань:', err);
-    await ctx.reply('Не вдалося завантажити список завдань.');
-  }
-});
-
-// Обробка натискання кнопки "Взяти в роботу"
-bot.action(/take_(.+)/, async (ctx) => {
-  const bountyId = ctx.match[1];
-
-  try {
-    const { data: bounty, error: bountyError } = await supabase
-      .from('bounties')
-      .select('*')
-      .eq('id', bountyId)
-      .eq('status', 'open')
-      .single();
-
-    if (bountyError || !bounty) {
-      return ctx.answerCbQuery('❌ Завдання вже зайняте або недоступне!');
-    }
-
-    const { error: updateError } = await supabase
-      .from('bounties')
-      .update({ status: 'in_progress', executor_id: ctx.from.id })
-      .eq('id', bountyId);
-
-    if (updateError) throw updateError;
-
-    await ctx.editMessageText(
-      `✅ Ви успішно взяли в роботу баунті!\n\n` +
-      `🔹 *${bounty.title}*\n` +
+          [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]         ])       });     }        } catch (err) {     console.error('Помилка отримання завдань:', err);     await ctx.reply('Не вдалося завантажити список завдань.');   } });  // Обробка натискання кнопки "Взяти в роботу" bot.action(/take_(.+)/, async (ctx) => {   const bountyId = ctx.match[1];    try {     const { data: bounty, error: bountyError } = await supabase       .from('bounties')       .select('*')       .eq('id', bountyId)       .eq('status', 'open')       .single();      if (bountyError \vert{}\vert{} !bounty) {       return ctx.answerCbQuery('❌ Завдання вже зайняте або недоступне!');     }      const { error: updateError } = await supabase       .from('bounties')       .update({ status: 'in_progress', executor_id: ctx.from.id })       .eq('id', bountyId);      if (updateError) throw updateError;      await ctx.editMessageText(       `✅ Ви успішно взяли в роботу баунті!\n\n` +       `🔹 *${bounty.title}*\n` +
       `💰 Нагорода: **$${bounty.reward}**\n\n` +
       `Після виконання надішліть звіт через команду: \`/submit ${bounty.id}\``,
       { parse_mode: 'Markdown' }
@@ -176,22 +79,18 @@ bot.action(/take_(.+)/, async (ctx) => {
 
     await ctx.answerCbQuery('Завдання успішно взято в роботу!');
 
-    // Надсилаємо сповіщення творцю завдання (якщо вказаний creator_id)
     if (bounty.creator_id) {
         try {
             await ctx.telegram.sendMessage(
                 bounty.creator_id, 
-                `🔔 Ваше завдання "*${bounty.title}*" щойно взяв у роботу користувач @${ctx.from.username || ctx.from.first_name}!`
-            );
-        } catch (notifErr) {
-            console.log('Не вдалося надіслати сповіщення творцю:', notifErr);
-        }
-    }
+                `🔔 Ваше завдання "*${bounty.title}*" щойно взяв у роботу користувач @${ctx.from.username \vert{}\vert{} ctx.from.first_name}!`             );         } catch (notifErr) {             console.log('Сповіщення творцю не надіслано:', notifErr);         }     }    } catch (err) {     console.error('Помилка take:', err);     await ctx.answerCbQuery('⚠️ Сталася системна помилка.');   } });  // Обробник кнопки "Відмовитися від завдання" (повертає статус в open) bot.action(/cancel_task_(.+)/, async (ctx) => {     await ctx.answerCbQuery();     const bountyId = ctx.match[1];      try {         const { data: bounty, error: bountyError } = await supabase             .from('bounties')             .select('*')             .eq('id', bountyId)             .eq('executor_id', ctx.from.id)             .eq('status', 'in_progress')             .single();          if (bountyError \vert{}\vert{} !bounty) {             return ctx.reply('❌ Завдання не знайдено або ви не можете від нього відмовитися.');         }          const { error: updateError } = await supabase             .from('bounties')             .update({ status: 'open', executor_id: null })             .eq('id', bountyId);          if (updateError) throw updateError;          await ctx.editMessageText(             `❌ Ви відмовилися від виконання завдання "*${bounty.title}*". Воно знову доступне для інших користувачів.`,
+            { parse_mode: 'Markdown' }
+        );
 
-  } catch (err) {
-    console.error('Помилка натискання кнопки take:', err);
-    await ctx.answerCbQuery('⚠️ Сталася системна помилка.');
-  }
+    } catch (err) {
+        console.error('Помилка відмови від завдання:', err);
+        await ctx.reply('⚠️ Не вдалося відмовитися від завдання.');
+    }
 });
 
 // Команда /submit (здача завдання на перевірку)
@@ -225,52 +124,10 @@ bot.command('submit', async (ctx) => {
     if (updateError) throw updateError;
 
     await ctx.reply(
-      `📤 Ви успішно надіслали звіт по баунті *${bounty.title}* на перевірку!\n\n` +
-      `Адміністратор перевірить вашу роботу найближчим часом.`,
-      { parse_mode: 'Markdown' }
-    );
-
-  } catch (err) {
-    console.error('Помилка здачі завдання:', err);
-    await ctx.reply('⚠️ Не вдалося надіслати завдання через системну помилку.');
-  }
-});
-
-bot.action('create_task', async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.scene.enter('createTaskWizard');
-});
-
-// Обробка підтвердження виконання через адмін-панель (кнопка)
-bot.action(/approve_(.+)/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const bountyId = ctx.match[1];
-
-    try {
-        const { data: bounty, error: bountyError } = await supabase
-            .from('bounties')
-            .select('*')
-            .eq('id', bountyId)
-            .eq('status', 'review')
-            .single();
-
-        if (bountyError || !bounty) {
-            return ctx.reply('❌ Завдання не знайдено або воно вже перевірено.');
-        }
-
-        const { error: updateError } = await supabase
-            .from('bounties')
-            .update({ status: 'completed' })
-            .eq('id', bountyId);
-
-        if (updateError) throw updateError;
-
-        await ctx.editMessageText(
-            `🎉 Баунті *${bounty.title}* успішно підтверджено та завершено!\n💰 Виплачено нагороду: **$${bounty.reward}**`,
+      `📤 Ви успішно надіслали звіт по баунті *${bounty.title}* на перевірку!\n\n` +       `Адміністратор перевірить вашу роботу найближчим часом.`,       { parse_mode: 'Markdown' }     );    } catch (err) {     console.error('Помилка здачі завдання:', err);     await ctx.reply('⚠️ Не вдалося надіслати завдання через системну помилку.');   } });  bot.action('create_task', async (ctx) => {     await ctx.answerCbQuery();     await ctx.scene.enter('createTaskWizard'); });  // Обробник підтвердження виконання через адмін-панель bot.action(/approve_(.+)/, async (ctx) => {     // Перевірка безпеки: тільки головний адмін може натискати     if (ctx.from.id !== ADMIN_ID) {         return ctx.answerCbQuery('⛔ У вас немає прав адміністратора!', { show_alert: true });     }      await ctx.answerCbQuery();     const bountyId = ctx.match[1];      try {         const { data: bounty, error: bountyError } = await supabase             .from('bounties')             .select('*')             .eq('id', bountyId)             .eq('status', 'review')             .single();          if (bountyError \vert{}\vert{} !bounty) {             return ctx.reply('❌ Завдання не знайдено або воно вже перевірено.');         }          const { error: updateError } = await supabase             .from('bounties')             .update({ status: 'completed' })             .eq('id', bountyId);          if (updateError) throw updateError;          await ctx.editMessageText(             `🎉 Баунті *${bounty.title}* успішно підтверджено та завершено!\n💰 Виплачено нагороду: **$${bounty.reward}**`,
             { parse_mode: 'Markdown' }
         );
 
-        // Повідомляємо виконавця про успішне зарахування
         if (bounty.executor_id) {
             try {
                 await ctx.telegram.sendMessage(
@@ -287,57 +144,6 @@ bot.action(/approve_(.+)/, async (ctx) => {
         console.error('Помилка approve action:', err);
         await ctx.reply('⚠️ Системна помилка під час підтвердження.');
     }
-});
-
-// Команда /approve (для ручного введення)
-bot.command('approve', async (ctx) => {
-  const text = ctx.message.text;
-  const args = text.split(' ');
-  const bountyId = args[1];
-
-  if (!bountyId) {
-    return ctx.reply('⚠️ Вкажіть ID завдання. Наприклад: `/approve 2`', { parse_mode: 'Markdown' });
-  }
-
-  try {
-    const { data: bounty, error: bountyError } = await supabase
-      .from('bounties')
-      .select('*')
-      .eq('id', bountyId)
-      .eq('status', 'review')
-      .single();
-
-    if (bountyError || !bounty) {
-      return ctx.reply('❌ Завдання не знайдено або воно не на перевірці.');
-    }
-
-    const { error: updateError } = await supabase
-      .from('bounties')
-      .update({ status: 'completed' })
-      .eq('id', bountyId);
-
-    if (updateError) throw updateError;
-
-    await ctx.reply(
-      `🎉 Баунті *${bounty.title}* успішно підтверджено та завершено!\n\n` +
-      `💰 Нагорода **$${bounty.reward}** готова до виплати.`,
-      { parse_mode: 'Markdown' }
-    );
-
-    if (bounty.executor_id) {
-        try {
-            await ctx.telegram.sendMessage(
-                bounty.executor_id,
-                `🎉 Вашу роботу за завданням "*${bounty.title}*" підтверджено! Нагорода: **+$${bounty.reward}**`,
-                { parse_mode: 'Markdown' }
-            );
-        } catch (e) {}
-    }
-
-  } catch (err) {
-    console.error('Помилка approve:', err);
-    await ctx.reply('⚠️️ Системна помилка.');
-  }
 });
 
 // Обробник кнопки "Список доступних завдань"
@@ -365,46 +171,21 @@ bot.action('list_tasks', async (ctx) => {
             await ctx.reply(message, {
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard([
-                    [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
-                ])
-            });
-        }
-    } catch (err) {
-        console.error('Помилка отримання завдань:', err);
-        await ctx.reply('Не вдалося завантажити список завдань.');
-    }
-});
-
-// Обробник кнопки "Мої завдання в роботі"
-bot.action('my_active_tasks', async (ctx) => {
-    await ctx.answerCbQuery();
-    try {
-        const { data: activeTasks, error } = await supabase
-            .from('bounties')
-            .select('*')
-            .eq('executor_id', ctx.from.id)
-            .eq('status', 'in_progress');
-
-        if (error) throw error;
-
-        if (!activeTasks || activeTasks.length === 0) {
-            return ctx.reply('📭 У вас немає завдань, які зараз перебувають у роботі.');
-        }
-
-        await ctx.reply('📂 **Ваші активні завдання:**');
-
-        for (const bounty of activeTasks) {
-            const message = 
-                `🔹 *${bounty.title}*\n` +
+                    [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]                 ])             });         }     } catch (err) {         console.error('Помилка отримання завдань:', err);         await ctx.reply('Не вдалося завантажити список завдань.');     } });  // Обробник кнопки "Мої завдання в роботі" (+ кнопка відмови) bot.action('my_active_tasks', async (ctx) => {     await ctx.answerCbQuery();     try {         const { data: activeTasks, error } = await supabase             .from('bounties')             .select('*')             .eq('executor_id', ctx.from.id)             .eq('status', 'in_progress');          if (error) throw error;          if (!activeTasks \vert{}\vert{} activeTasks.length === 0) {             return ctx.reply('📭 У вас немає завдань, які зараз перебувають у роботі.');         }          await ctx.reply('📂 **Ваші активні завдання:**');          for (const bounty of activeTasks) {             const message =                  `🔹 *${bounty.title}*\n` +
                 `💰 Нагорода: **$${bounty.reward}**\n` +
                 `📝 Опис: ${bounty.description}\n\n` +
                 `📤 Для здачі надішліть: \`/submit ${bounty.id}\``;
 
-            await ctx.reply(message, { parse_mode: 'Markdown' });
+            await ctx.reply(message, {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('❌ Відмовитися від завдання', `cancel_task_${bounty.id}`)]
+                ])
+            });
         }
     } catch (err) {
-        console.error('Помилка отримання активних завдань:', err);
-        await ctx.reply('⚠️ Не вдалося завантажити ваші активні завдання.');
+        console.error('Помилка активних завдань:', err);
+        await ctx.reply('⚠️ Не вдалося завантажити активні завдання.');
     }
 });
 
@@ -435,13 +216,18 @@ bot.action('my_completed_tasks', async (ctx) => {
             await ctx.reply(message, { parse_mode: 'Markdown' });
         }
     } catch (err) {
-        console.error('Помилка отримання історії:', err);
+        console.error('Помилка історії:', err);
         await ctx.reply('⚠️ Не вдалося завантажити історію завдань.');
     }
 });
 
-// Адмін-панель: перегляд завдань на перевірці (review) з кнопкою підтвердження
+// Адмін-панель: перевірка безпеки та вивід завдань на перевірці
 bot.action('admin_reviews', async (ctx) => {
+    // 🔒 Перевірка: якщо це не твій ID, показуємо сповіщення і перериваємо
+    if (ctx.from.id !== ADMIN_ID) {
+        return ctx.answerCbQuery('⛔ Ця функція доступна лише адміністратору!', { show_alert: true });
+    }
+
     await ctx.answerCbQuery();
     try {
         const { data: reviewTasks, error } = await supabase
@@ -510,8 +296,8 @@ bot.action('my_profile', async (ctx) => {
 
         await ctx.reply(profileMessage, { parse_mode: 'Markdown' });
     } catch (err) {
-        console.error('Помилка завантаження профілю:', err);
-        await ctx.reply('⚠️️ Не вдалося завантажити дані профілю з бази.');
+        console.error('Помилка профілю:', err);
+        await ctx.reply('⚠️ Не вдалося завантажити дані профілю з бази.');
     }
 });
 
