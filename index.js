@@ -283,7 +283,15 @@ bot.action('list_tasks', async (ctx) => {
                 ...Markup.inlineKeyboard([
                     [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
                 ])
-                // Обробник натискання кнопки "Взяти в роботу"
+});
+            });
+        }
+    } catch (err) {
+        console.error('Помилка отримання завдань:', err);
+        await ctx.reply('Не вдалося завантажити список завдань.');
+    }
+});
+// Обробник натискання кнопки "Взяти в роботу"
 bot.action(/^take_(.+)$/, async (ctx) => {
     const bountyId = ctx.match[1]; // Отримуємо ID завдання з кнопки
 
@@ -308,13 +316,6 @@ bot.action(/^take_(.+)$/, async (ctx) => {
     } catch (err) {
         console.error('Помилка при взятті в роботу:', err);
         await ctx.answerCbQuery('⚠️ Виникла помилка.');
-    }
-});
-            });
-        }
-    } catch (err) {
-        console.error('Помилка отримання завдань:', err);
-        await ctx.reply('Не вдалося завантажити список завдань.');
     }
 });
 bot.action('my_profile', async (ctx) => {
