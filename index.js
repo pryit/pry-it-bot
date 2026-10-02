@@ -244,7 +244,36 @@ bot.command('approve', async (ctx) => {
 });
 bot.action('list_tasks', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply('📋 Тут незабаром з\'явиться список всіх доступних завдань та їх статус!');
+    try {
+        const { data: bounties, error } = await supabase
+            .from('bounties')
+            .select('*')
+            .eq('status', 'open');
+
+        if (error) throw error;
+
+        if (!bounties || bounties.length === 0) {
+            return ctx.reply('Наразі немає відкритих завдань. Створіть перше!');
+        }
+
+        for (const bounty of bounties) {
+            const message = 
+                `🔹 *${bounty.title}*\n` +
+                `💰 Нагорода: **$${bounty.reward}**\n` +
+                `📝 Опис: ${bounty.description}\n` +
+                `🆔 ID: \`${bounty.id}\``;
+
+            await ctx.reply(message, {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                    [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
+                ])
+            });
+        }
+    } catch (err) {
+        console.error('Помилка отримання завдань:', err);
+        await ctx.reply('Не вдалося завантажити список завдань.');
+    }
 });
 
 bot.action('create_task', async (ctx) => {
