@@ -284,7 +284,6 @@ bot.action('list_tasks', async (ctx) => {
                     [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
                 ])
 }
-        }
     } catch (err) {
         console.error('Помилка отримання завдань:', err);
         await ctx.reply('Не вдалося завантажити список завдань.');
