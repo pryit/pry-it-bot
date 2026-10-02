@@ -346,10 +346,7 @@ bot.action('my_profile', async (ctx) => {
 });
 
 
-bot.action('my_profile', async (ctx) => {
-    await ctx.answerCbQuery();
-    await ctx.reply(`💼 Ваш профіль: ${ctx.from.first_name}\nТут буде відображатися ваша статистика, статус та зароблені кошти.`);
-});
+
 bot.launch(() => console.log('🤖 Бот Pry.it успішно запущено та підключено до БД!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
