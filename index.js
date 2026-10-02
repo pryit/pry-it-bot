@@ -10,7 +10,7 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const createTaskWizard = new Scenes.WizardScene(
     'createTaskWizard',
     async (ctx) => {
-        await ctx.reply('✍️ Введіть коротку назву для нового завдання:');
+        await ctx.reply('✍️ Введіть коротку назву для нового завдання (або напишіть /cancel для відміни):');
         return ctx.wizard.next();
     },
     async (ctx) => {
@@ -47,7 +47,13 @@ const createTaskWizard = new Scenes.WizardScene(
         return ctx.scene.leave();
     }
 );
-
+createTaskWizard.use(async (ctx, next) => {
+    if (ctx.message && ctx.message.text === '/cancel') {
+        await ctx.reply('❌ Створення завдання скасовано.');
+        return ctx.scene.leave();
+    }
+    return next();
+});
 const stage = new Scenes.Stage([createTaskWizard]);
 bot.use(session());
 bot.use(stage.middleware());
