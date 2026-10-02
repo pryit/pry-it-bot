@@ -58,7 +58,7 @@ const stage = new Scenes.Stage([createTaskWizard]);
 bot.use(session());
 bot.use(stage.middleware());
 
-// Команда /start
+// Команда /start (тут оновлене меню з новою кнопкою)
 bot.start(async (ctx) => {
   const from = ctx.from;
   
@@ -81,6 +81,7 @@ bot.start(async (ctx) => {
             reply_markup: {
                 inline_keyboard: [
                     [{ text: '📋 Список доступних завдань', callback_data: 'list_tasks' }],
+                    [{ text: '📂 Мої завдання в роботі', callback_data: 'my_active_tasks' }],
                     [{ text: '➕ Створити нове завдання', callback_data: 'create_task' }],
                     [{ text: '💼 Мій профіль', callback_data: 'my_profile' }]
                 ]
@@ -148,7 +149,7 @@ bot.action(/take_(.+)/, async (ctx) => {
 
     const { error: updateError } = await supabase
       .from('bounties')
-      .update({ status: 'in_progress' })
+      .update({ status: 'in_progress', executor_id: ctx.from.id })
       .eq('id', bountyId);
 
     if (updateError) throw updateError;
@@ -291,7 +292,40 @@ bot.action('list_tasks', async (ctx) => {
     }
 });
 
-// Обробник кнопки "Мій профіль" з реальним підрахунком статистики
+// Обробник кнопки "Мої завдання в роботі"
+bot.action('my_active_tasks', async (ctx) => {
+    await ctx.answerCbQuery();
+    try {
+        const { data: activeTasks, error } = await supabase
+            .from('bounties')
+            .select('*')
+            .eq('executor_id', ctx.from.id)
+            .eq('status', 'in_progress');
+
+        if (error) throw error;
+
+        if (!activeTasks || activeTasks.length === 0) {
+            return ctx.reply('📭 У вас немає завдань, які зараз перебувають у роботі.');
+        }
+
+        await ctx.reply('📂 **Ваші активні завдання:**');
+
+        for (const bounty of activeTasks) {
+            const message = 
+                `🔹 *${bounty.title}*\n` +
+                `💰 Нагорода: **$${bounty.reward}**\n` +
+                `📝 Опис: ${bounty.description}\n\n` +
+                `📤 Для здачі надішліть: \`/submit ${bounty.id}\``;
+
+            await ctx.reply(message, { parse_mode: 'Markdown' });
+        }
+    } catch (err) {
+        console.error('Помилка отримання активних завдань:', err);
+        await ctx.reply('⚠️ Не вдалося завантажити ваші активні завдання.');
+    }
+});
+
+// Обробник кнопки "Мій профіль"
 bot.action('my_profile', async (ctx) => {
     await ctx.answerCbQuery();
     try {
