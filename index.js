@@ -348,7 +348,7 @@ bot.action('my_profile', async (ctx) => {
             `🆔 Telegram ID: \`${user.telegram_id}\`\n\n` +
             `📊 **Ваша статистика:**\n` +
             `✅ Виконано завдань: ${completedCount}\n` +
-            `💰 Баланс: $${totalEarnings}`;
+            `💰 Баланс: $${totalEarnings}
 
         await ctx.reply(profileMessage, { parse_mode: 'Markdown' });
     } catch (err) {
