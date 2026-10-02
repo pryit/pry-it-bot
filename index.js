@@ -320,21 +320,35 @@ bot.action(/^take_(.+)$/, async (ctx) => {
 bot.action('my_profile', async (ctx) => {
     await ctx.answerCbQuery();
     try {
-        const { data: user, error } = await supabase
+        // 1. Отримуємо дані користувача
+        const { data: user, error: userError } = await supabase
             .from('users')
             .select('*')
             .eq('telegram_id', ctx.from.id)
             .single();
 
-        if (error) throw error;
+        if (userError) throw userError;
+
+        // 2. Отримуємо виконані цим користувачем завдання для підрахунку статистики
+        const { data: completedBounties, error: bountiesError } = await supabase
+            .from('bounties')
+            .select('*')
+            .eq('executor_id', ctx.from.id) // Переконайся, що в базі виконавець записується так, або змініть поле під себе
+            .eq('status', 'completed');
+
+        if (bountiesError) throw bountiesError;
+
+        // Рахуємо кількість і загальну суму
+        const completedCount = completedBounties ? completedBounties.length : 0;
+        const totalEarnings = completedBounties ? completedBounties.reduce((sum, b) => sum + (b.reward || 0), 0) : 0;
 
         const profileMessage = 
-            `💼 **Ваш особистий кабінет**\n\n` +
+            `📁 **Ваш особистий кабінет**\n\n` +
             `👤 Ім'я: ${user.first_name}\n` +
             `🆔 Telegram ID: \`${user.telegram_id}\`\n\n` +
-            `📊 **Ваша статистика (незабаром):**\n` +
-            `✅ Виконано завдань: 0\n` +
-            `💰 Баланс: $0`;
+            `📊 **Ваша статистика:**\n` +
+            `✅ Виконано завдань: ${completedCount}\n` +
+            `💰 Баланс: $${totalEarnings}`;
 
         await ctx.reply(profileMessage, { parse_mode: 'Markdown' });
     } catch (err) {
