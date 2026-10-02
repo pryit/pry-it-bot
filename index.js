@@ -24,9 +24,21 @@ bot.start(async (ctx) => {
       );
 
     if (error) throw error;
-    
-    await ctx.reply(`Привіт, ${from.first_name}! Ласкаво просимо до Pry.it Bounties.\nВаш профіль успішно зареєстровано в базі даних!`);
+    await ctx.reply(
+        `👋 Привіт, ${from.first_name}! Я Pry.it — твій менеджер баунті-завдань.\nВаш профіль успішно зареєстровано в базі!\n\nОбери дію в меню нижче:`, 
+        {
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: '📋 Список доступних завдань', callback_data: 'list_tasks' }],
+                    [{ text: '➕ Створити нове завдання', callback_data: 'create_task' }],
+                    [{ text: '💼 Мій профіль', callback_data: 'my_profile' }]
+                ]
+            }
+        }
+    );
     console.log(`Новий користувач: ${from.first_name}`);
+    await ctx.reply(`Привіт, ${from.first_name}! Ласкаво просимо до Pry.it Bounties.\nВаш профіль успішно зареєстровано в базі даних!`);
+console.log(`Новий користувач: ${from.first_name}`);
     
   } catch (err) {
     console.error('Помилка БД:', err);
