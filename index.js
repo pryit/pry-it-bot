@@ -204,10 +204,10 @@ bot.command('submit', async (ctx) => {
   }
 });
 
-// Команда /create (створення нового баунті)
-bot.command('create', async (ctx) => {
-  const text = ctx.message.text.replace('/create', '').trim();
-  const parts = text.split('|').map(p => p.trim());
+bot.action('create_task', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.scene.enter('createTaskWizard');
+});
 
   if (parts.length < 3) {
     return ctx.reply(
