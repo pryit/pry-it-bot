@@ -57,6 +57,7 @@ createTaskWizard.use(async (ctx, next) => {
 const stage = new Scenes.Stage([createTaskWizard]);
 bot.use(session());
 bot.use(stage.middleware());
+
 // Команда /start
 bot.start(async (ctx) => {
   const from = ctx.from;
@@ -115,7 +116,6 @@ bot.command('bounties', async (ctx) => {
         `📝 Опис: ${bounty.description}\n` +
         `🆔 ID завдання: \`${bounty.id}\``;
 
-      // Додаємо інтерактивну кнопку під кожним завданням
       await ctx.reply(message, {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
@@ -215,8 +215,6 @@ bot.action('create_task', async (ctx) => {
     await ctx.scene.enter('createTaskWizard');
 });
 
-
-
 // Команда /approve (підтвердження адміністратором)
 bot.command('approve', async (ctx) => {
   const text = ctx.message.text;
@@ -257,6 +255,8 @@ bot.command('approve', async (ctx) => {
     await ctx.reply('⚠️ Системна помилка.');
   }
 });
+
+// Обробник кнопки "Список доступних завдань"
 bot.action('list_tasks', async (ctx) => {
     await ctx.answerCbQuery();
     try {
@@ -283,18 +283,57 @@ bot.action('list_tasks', async (ctx) => {
                 ...Markup.inlineKeyboard([
                     [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
                 ])
-}
+            });
+        }
     } catch (err) {
         console.error('Помилка отримання завдань:', err);
         await ctx.reply('Не вдалося завантажити список завдань.');
     }
 });
-// Обробник натискання кнопки "Взяти в роботу"
+
+// Обробник кнопки "Мій профіль" з реальним підрахунком статистики
+bot.action('my_profile', async (ctx) => {
+    await ctx.answerCbQuery();
+    try {
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('telegram_id', ctx.from.id)
+            .single();
+
+        if (userError) throw userError;
+
+        const { data: completedBounties, error: bountiesError } = await supabase
+            .from('bounties')
+            .select('*')
+            .eq('executor_id', ctx.from.id)
+            .eq('status', 'completed');
+
+        if (bountiesError) throw bountiesError;
+
+        const completedCount = completedBounties ? completedBounties.length : 0;
+        const totalEarnings = completedBounties ? completedBounties.reduce((sum, b) => sum + (b.reward || 0), 0) : 0;
+
+        const profileMessage = 
+            `📁 **Ваш особистий кабінет**\n\n` +
+            `👤 Ім'я: ${user.first_name}\n` +
+            `🆔 Telegram ID: \`${user.telegram_id}\`\n\n` +
+            `📊 **Ваша статистика:**\n` +
+            `✅ Виконано завдань: ${completedCount}\n` +
+            `💰 Баланс: $${totalEarnings}`;
+
+        await ctx.reply(profileMessage, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error('Помилка завантаження профілю:', err);
+        await ctx.reply('⚠️ Не вдалося завантажити дані профілю з бази.');
+    }
+});
 
 bot.launch(() => console.log('🤖 Бот Pry.it успішно запущено та підключено до БД!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running!');
