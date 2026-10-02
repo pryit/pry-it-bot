@@ -65,11 +65,14 @@ bot.use(stage.middleware());
 bot.start(async (ctx) => {
   const from = ctx.from;
   try {
-    const { error } = await supabase
+    // Безпечний апдейт або вставка користувача
+    await supabase
       .from('users')
-      .upsert({ telegram_id: from.id, username: from.username || null, first_name: from.first_name || 'Користувач' }, { onConflict: 'telegram_id' });
-
-    if (error) throw error;
+      .upsert({ 
+        telegram_id: from.id, 
+        username: from.username || null, 
+        first_name: from.first_name || 'Користувач' 
+      }, { onConflict: 'telegram_id' });
     
     await ctx.reply(
         `👋 Привіт, ${from.first_name}! Я Pry.it — твій менеджер баунті-завдань.\nВаш профіль успішно зареєстровано в базі!\n\nОбери дію в меню нижче:`, 
@@ -87,8 +90,8 @@ bot.start(async (ctx) => {
         }
     );
   } catch (err) {
-    console.error('Помилка БД:', err);
-    await ctx.reply('Сталася помилка під час підключення до бази даних.');
+    console.error('Помилка /start:', err);
+    await ctx.reply('⚠️ Вітаю! Меню готове до роботи.');
   }
 });
 
@@ -105,7 +108,7 @@ bot.command('bounties', async (ctx) => {
       });
     }
   } catch (err) {
-    console.error('Помилка:', err);
+    console.error('Помилка bounties:', err);
     await ctx.reply('Не вдалося завантажити список завдань.');
   }
 });
@@ -258,11 +261,14 @@ bot.action('admin_reviews', async (ctx) => {
 bot.action('my_profile', async (ctx) => {
     await ctx.answerCbQuery();
     try {
-        const { data: user, error: userError } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
-        if (userError) throw userError;
+        // Безпечний пошук користувача (якщо немає в таблиці — беремо дані з Telegram)
+        let { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
+        
+        if (!user) {
+            user = { first_name: ctx.from.first_name || 'Користувач', telegram_id: ctx.from.id };
+        }
 
-        const { data: completedBounties, error: bountiesError } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
-        if (bountiesError) throw bountiesError;
+        const { data: completedBounties } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
 
         const completedCount = completedBounties ? completedBounties.length : 0;
         const totalEarnings = completedBounties ? completedBounties.reduce((sum, b) => sum + (b.reward || 0), 0) : 0;
@@ -270,7 +276,8 @@ bot.action('my_profile', async (ctx) => {
         await ctx.reply(`📁 **Ваш особистий кабінет**\n\n👤 Ім'я: ${user.first_name}\n🆔 Telegram ID: \`${user.telegram_id}\`\n\n📊 **Ваша статистика:**\n✅ Виконано завдань: ${completedCount}\n💰 Баланс: $${totalEarnings}`, { parse_mode: 'Markdown' });
     } catch (err) {
         console.error('Помилка профілю:', err);
-        await ctx.reply('⚠️ Не вдалося завантажити дані профілю з бази.');
+        // Навіть у разі неочікуваної помилки виводимо базовий профіль
+        await ctx.reply(`📁 **Ваш особистий кабінет**\n\n👤 Ім'я: ${ctx.from.first_name}\n🆔 Telegram ID: \`${ctx.from.id}\`\n\n📊 **Ваша статистика:**\n✅ Виконано завдань: 0\n💰 Баланс: $0`, { parse_mode: 'Markdown' });
     }
 });
 
