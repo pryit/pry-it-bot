@@ -209,42 +209,7 @@ bot.action('create_task', async (ctx) => {
     await ctx.scene.enter('createTaskWizard');
 });
 
-  if (parts.length < 3) {
-    return ctx.reply(
-      '⚠️ Неправильний формат!\n\n' +
-      'Використовуйте так:\n' +
-      '`/create Назва завдання | Сумма | Опис завдання`',
-      { parse_mode: 'Markdown' }
-    );
-  }
 
-  const [title, rewardStr, description] = parts;
-  const reward = parseFloat(rewardStr);
-
-  if (isNaN(reward)) {
-    return ctx.reply('❌ Помилка: нагорода має бути числом.', { parse_mode: 'Markdown' });
-  }
-
-  try {
-    const { error } = await supabase
-      .from('bounties')
-      .insert([{ title, reward, description, status: 'open' }]);
-
-    if (error) throw error;
-
-    await ctx.reply(
-      `✅ Нове баунті-завдання успішно створено та опубліковано!\n\n` +
-      `🔹 *${title}*\n` +
-      `💰 Нагорода: **$${reward}**\n` +
-      `📝 Опис: ${description}`,
-      { parse_mode: 'Markdown' }
-    );
-
-  } catch (err) {
-    console.error('Помилка створення завдання:', err);
-    await ctx.reply('⚠️ Не вдалося створити завдання.');
-  }
-});
 
 // Команда /approve (підтвердження адміністратором)
 bot.command('approve', async (ctx) => {
