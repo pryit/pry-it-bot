@@ -8,7 +8,7 @@ dotenv.config();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
 // 👑 ВСТАВ СВІЙ РЕАЛЬНИЙ TELEGRAM ID ТУТ
-const ADMIN_ID = 123456789; // Заміни на свій ID!
+const ADMIN_ID = 1038839260; // Заміни на свій ID!
 
 const createTaskWizard = new Scenes.WizardScene(
     'createTaskWizard',
