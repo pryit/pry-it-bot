@@ -349,7 +349,11 @@ bot.action('my_profile', async (ctx) => {
             `📊 **Ваша статистика:**\n` +
             `✅ Виконано завдань: ${completedCount}\n` +
             `💰 Баланс: $${totalEarnings}
-
+} catch (err) {
+        console.error('Помилка завантаження профілю:', err);
+        await ctx.reply('⚠️ Не вдалося завантажити дані профілю з бази.');
+    }
+});
         await ctx.reply(profileMessage, { parse_mode: 'Markdown' });
     } catch (err) {
         console.error('Помилка завантаження профілю:', err);
