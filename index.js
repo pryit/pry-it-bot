@@ -37,8 +37,6 @@ bot.start(async (ctx) => {
         }
     );
     console.log(`Новий користувач: ${from.first_name}`);
-    await ctx.reply(`Привіт, ${from.first_name}! Ласкаво просимо до Pry.it Bounties.\nВаш профіль успішно зареєстровано в базі даних!`);
-console.log(`Новий користувач: ${from.first_name}`);
     
   } catch (err) {
     console.error('Помилка БД:', err);
