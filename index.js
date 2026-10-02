@@ -1,12 +1,56 @@
 import http from 'http';
-import { Telegraf, Markup } from 'telegraf';
+import { Telegraf, Markup, session, Scenes } from 'telegraf';
 import dotenv from 'dotenv';
 import { supabase } from './supabase.js';
 
 dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+// Налаштування покрокового діалогу для створення завдання
+const createTaskWizard = new Scenes.WizardScene(
+    'createTaskWizard',
+    async (ctx) => {
+        await ctx.reply('✍️ Введіть коротку назву для нового завдання:');
+        return ctx.wizard.next();
+    },
+    async (ctx) => {
+        ctx.wizard.state.title = ctx.message.text;
+        await ctx.reply('💰 Введіть суму нагороди в доларах (тільки цифру, наприклад: 50 або 100):');
+        return ctx.wizard.next();
+    },
+    async (ctx) => {
+        const reward = parseFloat(ctx.message.text);
+        if (isNaN(reward)) {
+            await ctx.reply('❌ Помилка: нагорода має бути цифрою. Спробуйте створити завдання з початку.');
+            return ctx.scene.leave();
+        }
+        ctx.wizard.state.reward = reward;
+        await ctx.reply('📝 Тепер введіть детальний опис завдання:');
+        return ctx.wizard.next();
+    },
+    async (ctx) => {
+        ctx.wizard.state.description = ctx.message.text;
+        const { title, reward, description } = ctx.wizard.state;
 
+        try {
+            const { error } = await supabase
+                .from('bounties')
+                .insert([{ title, reward, description, status: 'open' }]);
+
+            if (error) throw error;
+
+            await ctx.reply(`✅ Завдання "*${title}*" на суму $${reward} успішно створено і додано в базу!`, { parse_mode: 'Markdown' });
+        } catch (err) {
+            console.error('Помилка:', err);
+            await ctx.reply('⚠️ Системна помилка збереження.');
+        }
+        return ctx.scene.leave();
+    }
+);
+
+const stage = new Scenes.Stage([createTaskWizard]);
+bot.use(session());
+bot.use(stage.middleware());
 // Команда /start
 bot.start(async (ctx) => {
   const from = ctx.from;
