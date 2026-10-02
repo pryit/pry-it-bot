@@ -275,11 +275,32 @@ bot.action('list_tasks', async (ctx) => {
         await ctx.reply('Не вдалося завантажити список завдань.');
     }
 });
-
-bot.action('create_task', async (ctx) => {
+bot.action('my_profile', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.reply('➕ Щоб створити завдання, введіть команду у форматі:\n/create Назва | Нагорода | Опис\n\n(Зовсім скоро ми зробимо цей процес ще зручнішим!)');
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('telegram_id', ctx.from.id)
+            .single();
+
+        if (error) throw error;
+
+        const profileMessage = 
+            `💼 **Ваш особистий кабінет**\n\n` +
+            `👤 Ім'я: ${user.first_name}\n` +
+            `🆔 Telegram ID: \`${user.telegram_id}\`\n\n` +
+            `📊 **Ваша статистика (незабаром):**\n` +
+            `✅ Виконано завдань: 0\n` +
+            `💰 Баланс: $0`;
+
+        await ctx.reply(profileMessage, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error('Помилка завантаження профілю:', err);
+        await ctx.reply('⚠️ Не вдалося завантажити дані профілю з бази.');
+    }
 });
+
 
 bot.action('my_profile', async (ctx) => {
     await ctx.answerCbQuery();
