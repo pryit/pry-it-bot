@@ -242,7 +242,20 @@ bot.command('approve', async (ctx) => {
     await ctx.reply('⚠️ Системна помилка.');
   }
 });
+bot.action('list_tasks', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('📋 Тут незабаром з\'явиться список всіх доступних завдань та їх статус!');
+});
 
+bot.action('create_task', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply('➕ Щоб створити завдання, введіть команду у форматі:\n/create Назва | Нагорода | Опис\n\n(Зовсім скоро ми зробимо цей процес ще зручнішим!)');
+});
+
+bot.action('my_profile', async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.reply(`💼 Ваш профіль: ${ctx.from.first_name}\nТут буде відображатися ваша статистика, статус та зароблені кошти.`);
+});
 bot.launch(() => console.log('🤖 Бот Pry.it успішно запущено та підключено до БД!'));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
