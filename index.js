@@ -283,6 +283,33 @@ bot.action('list_tasks', async (ctx) => {
                 ...Markup.inlineKeyboard([
                     [Markup.button.callback('🛠 Взяти в роботу', `take_${bounty.id}`)]
                 ])
+                // Обробник натискання кнопки "Взяти в роботу"
+bot.action(/^take_(.+)$/, async (ctx) => {
+    const bountyId = ctx.match[1]; // Отримуємо ID завдання з кнопки
+
+    try {
+        // Оновлюємо статус завдання в Supabase
+        const { error } = await supabase
+            .from('bounties')
+            .update({ status: 'in_progress' })
+            .eq('id', bountyId);
+
+        if (error) throw error;
+
+        // Спливаюче повідомлення
+        await ctx.answerCbQuery('✅ Ви успішно взяли завдання в роботу!');
+        
+        // Оновлюємо текст повідомлення в чаті та прибираємо кнопку
+        await ctx.editMessageText(
+            `${ctx.callbackQuery.message.text}\n\n*🟢 Статус:* В процесі виконання`,
+            { parse_mode: 'Markdown' }
+        );
+
+    } catch (err) {
+        console.error('Помилка при взятті в роботу:', err);
+        await ctx.answerCbQuery('⚠️ Виникла помилка.');
+    }
+});
             });
         }
     } catch (err) {
