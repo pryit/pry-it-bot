@@ -7,12 +7,30 @@ dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_ID = 1038839260; 
-const COMMISSION_RATE = 0.05; // 5% комиссия платформы
+const COMMISSION_RATE = 0.05;
 
 bot.catch((err, ctx) => {
     console.error(`[System Error]:`, err);
     try { ctx.reply('⚠️ Сталася системна помилка. Будь ласка, поверніться в меню /start.').catch(()=>{}); } catch(e) {}
 });
+
+// --- НАДІЙНА ФУНКЦІЯ ОТРИМАННЯ/СТВОРЕННЯ КОРИСТУВАЧА ---
+async function getOrCreateUser(ctx) {
+    let { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
+    
+    if (!user) {
+        const newUser = { 
+            telegram_id: ctx.from.id, 
+            username: ctx.from.username || null, 
+            first_name: ctx.from.first_name || 'Користувач',
+            balance: 0,
+            frozen_balance: 0
+        };
+        await supabase.from('users').insert([newUser]);
+        return newUser;
+    }
+    return user;
+}
 
 function getMainMenu(userId) {
     const buttons = [
@@ -42,13 +60,16 @@ const depositWizard = new Scenes.WizardScene(
         }
 
         try {
-            const { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
-            const updatedBalance = (user?.balance || 0) + amount;
+            const user = await getOrCreateUser(ctx);
+            const updatedBalance = (user.balance || 0) + amount;
+            
+            // Надійне оновлення балансу
             await supabase.from('users').update({ balance: updatedBalance }).eq('telegram_id', ctx.from.id);
 
             await ctx.reply(`✅ <b>Тестове поповнення успішне!</b>\n\nНа ваш баланс зараховано: <b>$${amount}</b>\nПоточний баланс: <b>$${updatedBalance}</b>`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
         } catch (err) {
-            await ctx.reply('⚠️ Помилка БД.', getMainMenu(ctx.from.id));
+            console.error('Помилка поповнення:', err);
+            await ctx.reply('⚠️ Помилка бази даних.', getMainMenu(ctx.from.id));
         }
         return ctx.scene.leave();
     }
@@ -72,7 +93,7 @@ const submitProofWizard = new Scenes.WizardScene(
             await ctx.reply('✅ <b>Звіт передано модератору!</b>', { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
 
             await bot.telegram.sendMessage(ADMIN_ID, `🔔 <b>Новий звіт:</b>\nЗавдання: <b>${bounty.title}</b>\nМатеріали прикріплено нижче ⬇️`, { parse_mode: 'HTML' });
-            await ctx.copyMessage(ADMIN_ID); // Пересилаємо файл/текст адміну
+            await ctx.copyMessage(ADMIN_ID);
 
             const netPay = (bounty.reward * (1 - COMMISSION_RATE)).toFixed(2);
             await bot.telegram.sendMessage(ADMIN_ID, `Рішення по завданню #${bountyId}:`, {
@@ -100,11 +121,14 @@ const createTaskWizard = new Scenes.WizardScene(
     },
     async (ctx) => {
         const reward = parseFloat(ctx.message.text);
-        if (isNaN(reward) || reward <= 0) return ctx.scene.leave();
+        if (isNaN(reward) || reward <= 0) {
+            await ctx.reply('❌ Невірна сума.', getMainMenu(ctx.from.id));
+            return ctx.scene.leave();
+        }
 
-        const { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
-        if ((user?.balance || 0) < reward) {
-            await ctx.reply(`⚠ <b>Недостатньо коштів!</b> Ваш баланс: $${user?.balance || 0}. Потрібно: $${reward}.`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
+        const user = await getOrCreateUser(ctx);
+        if ((user.balance || 0) < reward) {
+            await ctx.reply(`⚠ <b>Недостатньо коштів!</b>\n\nВаш баланс: <b>$${user.balance || 0}</b>\nПотрібно: <b>$${reward}</b>`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
             return ctx.scene.leave();
         }
 
@@ -117,8 +141,11 @@ const createTaskWizard = new Scenes.WizardScene(
         const { title, reward, description } = ctx.wizard.state;
 
         try {
-            const { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
-            await supabase.from('users').update({ balance: user.balance - reward, frozen_balance: (user.frozen_balance || 0) + reward }).eq('telegram_id', ctx.from.id);
+            const user = await getOrCreateUser(ctx);
+            const newBalance = user.balance - reward;
+            const newFrozen = (user.frozen_balance || 0) + reward;
+
+            await supabase.from('users').update({ balance: newBalance, frozen_balance: newFrozen }).eq('telegram_id', ctx.from.id);
             await supabase.from('bounties').insert([{ title, reward, description, status: 'pending_approval', creator_id: ctx.from.id }]);
             
             await ctx.reply(`✅ <b>Завдання на модерації</b>\nСума $${reward} зарезервована (Escrow).`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
@@ -134,7 +161,7 @@ bot.use(stage.middleware());
 
 bot.start(async (ctx) => {
     try {
-        await supabase.from('users').upsert({ telegram_id: ctx.from.id, username: ctx.from.username, first_name: ctx.from.first_name || 'Користувач' }, { onConflict: 'telegram_id' });
+        await getOrCreateUser(ctx);
         await ctx.reply(`Платформа <b>Pry.it</b>\nГарант-сервіс.`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
     } catch (err) { await ctx.reply('Система готова.', getMainMenu(ctx.from.id)); }
 });
@@ -149,8 +176,8 @@ bot.action('create_task', async (ctx) => { await ctx.answerCbQuery(); await ctx.
 
 bot.action('my_profile', async (ctx) => {
     await ctx.answerCbQuery();
-    const { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
-    await ctx.editMessageText(`💼 <b>Особистий кабінет</b>\n\nВільний баланс: <b>$${user?.balance || 0}</b>\nВ резерві (Escrow): <b>$${user?.frozen_balance || 0}</b>`, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('💳 Поповнити (Тест)', 'deposit_start')], [Markup.button.callback('🔙 Меню', 'main_menu')]]) }).catch(()=>{});
+    const user = await getOrCreateUser(ctx);
+    await ctx.editMessageText(`💼 <b>Особистий кабінет</b>\n\nВільний баланс: <b>$${user.balance || 0}</b>\nВ резерві (Escrow): <b>$${user.frozen_balance || 0}</b>`, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('💳 Поповнити (Тест)', 'deposit_start')], [Markup.button.callback('🔙 Меню', 'main_menu')]]) }).catch(()=>{});
 });
 
 bot.action('list_tasks', async (ctx) => {
