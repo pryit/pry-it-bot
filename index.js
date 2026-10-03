@@ -6,7 +6,7 @@ import { supabase } from './supabase.js';
 dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const ADMIN_ID = 103839260; 
+const ADMIN_ID = 1038839260; 
 
 // Глобальный обработчик ошибок (чтобы бот никогда не зависал и не падал)
 bot.catch((err, ctx) => {
