@@ -9,14 +9,15 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_ID = 1038839260; 
 const COMMISSION_RATE = 0.05;
 
+// Захист від падінь
 bot.catch((err, ctx) => {
     console.error(`[System Error]:`, err);
-    try { ctx.reply('⚠️ Сталася системна помилка. Будь ласка, поверніться в меню /start.').catch(()=>{}); } catch(e) {}
+    try { ctx.reply('⚠️ Сталася системна помилка. Натисніть /start').catch(()=>{}); } catch(e) {}
 });
 
 // --- НАДІЙНА ФУНКЦІЯ ОТРИМАННЯ/СТВОРЕННЯ КОРИСТУВАЧА ---
 async function getOrCreateUser(ctx) {
-    let { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
+    const { data: user, error: fetchError } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
     
     if (!user) {
         const newUser = { 
@@ -26,7 +27,8 @@ async function getOrCreateUser(ctx) {
             balance: 0,
             frozen_balance: 0
         };
-        await supabase.from('users').insert([newUser]);
+        const { error: insertError } = await supabase.from('users').insert([newUser]);
+        if (insertError) console.error('DB Insert Error:', insertError);
         return newUser;
     }
     return user;
@@ -63,13 +65,13 @@ const depositWizard = new Scenes.WizardScene(
             const user = await getOrCreateUser(ctx);
             const updatedBalance = (user.balance || 0) + amount;
             
-            // Надійне оновлення балансу
-            await supabase.from('users').update({ balance: updatedBalance }).eq('telegram_id', ctx.from.id);
+            const { error: updateError } = await supabase.from('users').update({ balance: updatedBalance }).eq('telegram_id', ctx.from.id);
+            if (updateError) throw updateError;
 
             await ctx.reply(`✅ <b>Тестове поповнення успішне!</b>\n\nНа ваш баланс зараховано: <b>$${amount}</b>\nПоточний баланс: <b>$${updatedBalance}</b>`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
         } catch (err) {
             console.error('Помилка поповнення:', err);
-            await ctx.reply('⚠️ Помилка бази даних.', getMainMenu(ctx.from.id));
+            await ctx.reply('⚠️ Помилка бази даних. Спробуйте ще раз.', getMainMenu(ctx.from.id));
         }
         return ctx.scene.leave();
     }
@@ -205,7 +207,7 @@ bot.action('my_completed_tasks', async (ctx) => {
     const { data: completed } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
     if (!completed || completed.length === 0) return ctx.editMessageText('📭 <b>Історія порожня.</b>', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
     await ctx.deleteMessage().catch(()=>{});
-    for (const b of completed) await ctx.reply(`✅ <b>${b.title}</b>\nОплачено: $${(b.reward * 0.95).toFixed(2)}`, { parse_mode: 'HTML' });
+    for (const b of completed) await ctx.reply(`✅ <b>${b.title}</b>\nОплачено: $${(b.reward * (1 - COMMISSION_RATE)).toFixed(2)}`, { parse_mode: 'HTML' });
 });
 
 bot.action(/submit_start_(.+)/, async (ctx) => { await ctx.answerCbQuery(); await ctx.scene.enter('submitProofWizard', { bountyId: ctx.match[1] }); });
@@ -222,6 +224,9 @@ bot.action(/cancel_task_(.+)/, async (ctx) => {
     await ctx.editMessageText('❌ <b>Ви відмовилися.</b>', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
 });
 
+// ==========================================
+// ⚙️ АДМІН-ПАНЕЛЬ
+// ==========================================
 function getAdminMenu() {
     return Markup.inlineKeyboard([[Markup.button.callback('📝 Модерація', 'admin_pub_list'), Markup.button.callback('🔍 Звіти', 'admin_rev_list')], [Markup.button.callback('🔙 В меню', 'main_menu')]]);
 }
@@ -282,6 +287,11 @@ bot.action(/adm_app_rev_(.+)/, async (ctx) => {
 bot.action(/adm_rej_rev_(.+)/, async (ctx) => {
     await supabase.from('bounties').update({ status: 'in_progress' }).eq('id', ctx.match[1]);
     await ctx.editMessageText('🔄 <b>На доопрацювання.</b>', { parse_mode: 'HTML' }).catch(()=>{});
+});
+
+// Глобальний перехоплювач для загублених повідомлень (захист від скидання сесії)
+bot.on('text', async (ctx) => {
+    await ctx.reply('⚠️ Поточна дія була перервана оновленням сервера. Будь ласка, оберіть дію в меню нижче 👇', getMainMenu(ctx.from.id));
 });
 
 bot.launch({ dropPendingUpdates: true });
