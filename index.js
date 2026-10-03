@@ -9,23 +9,22 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ADMIN_ID = 1038839260; 
 const COMMISSION_RATE = 0.05;
 
-// --- СИСТЕМА ЛОГУВАННЯ ТА ЗАХИСТУ ВІД ПАДІНЬ ---
 bot.catch((err, ctx) => {
     console.error(`[КРИТИЧНА ПОМИЛКА]:`, err);
     try { ctx.reply('⚠️ Сталася системна помилка. Натисніть /start').catch(()=>{}); } catch(e) {}
 });
 
-// --- ІДЕАЛЬНА СИНХРОНІЗАЦІЯ З БАЗОЮ (БЕЗ PGRST116) ---
+// --- СТРОГА СИНХРОНІЗАЦІЯ З БАЗОЮ ---
 async function syncUser(ctx) {
-    const id = ctx.from.id;
-    // maybeSingle повертає null, якщо користувача немає, замість того щоб викидати помилку
+    const id = ctx.from.id.toString(); // Конвертуємо в рядок для сумісності з int8 в БД
+    
     let { data: user, error: fetchErr } = await supabase.from('users').select('*').eq('telegram_id', id).maybeSingle();
     
     if (fetchErr) throw fetchErr;
 
     if (!user) {
         user = {
-            telegram_id: id,
+            telegram_id: ctx.from.id, // Відправляємо оригінальний ID
             username: ctx.from.username || null,
             first_name: ctx.from.first_name || 'Користувач',
             balance: 0,
@@ -37,7 +36,6 @@ async function syncUser(ctx) {
     return user;
 }
 
-// --- ГОЛОВНЕ МЕНЮ ---
 function getMainMenu(userId) {
     const buttons = [
         [Markup.button.callback('💼 Мій кабінет / Баланс', 'my_profile'), Markup.button.callback('📋 Біржа завдань', 'list_tasks')],
@@ -50,7 +48,7 @@ function getMainMenu(userId) {
 
 const backButton = Markup.inlineKeyboard([[Markup.button.callback('🔙 В головне меню', 'main_menu')]]);
 
-// --- 1. СЦЕНА ПОПОВНЕННЯ (БЕЗПЕЧНА) ---
+// --- 1. СЦЕНА ПОПОВНЕННЯ (ВІДЛАДКА) ---
 const depositWizard = new Scenes.WizardScene(
     'depositWizard',
     async (ctx) => {
@@ -65,19 +63,22 @@ const depositWizard = new Scenes.WizardScene(
             return ctx.scene.leave();
         }
 
-        // Заміна коми на крапку для правильного парсингу
         const amount = parseFloat(ctx.message?.text?.replace(',', '.'));
         if (isNaN(amount) || amount <= 0) {
             await ctx.reply('❌ Невірна сума. Будь ласка, введіть просто число (наприклад: 50):');
-            return; // Не виходимо зі сцени, даємо спробувати ще раз
+            return;
         }
 
         try {
             const user = await syncUser(ctx);
             const updatedBalance = Number(((user.balance || 0) + amount).toFixed(2));
             
-            const { error: updErr } = await supabase.from('users').update({ balance: updatedBalance }).eq('telegram_id', ctx.from.id);
-            if (updErr) throw updErr;
+            // Записуємо баланс як рядок для уникнення помилок точності БД
+            const { error: updErr } = await supabase.from('users').update({ balance: updatedBalance.toString() }).eq('telegram_id', ctx.from.id.toString());
+            if (updErr) {
+                console.error('ПОМИЛКА UPDATE (USERS):', updErr);
+                throw updErr;
+            }
 
             await ctx.reply(`✅ <b>Тестове поповнення успішне!</b>\n\nНа ваш баланс зараховано: <b>$${amount.toFixed(2)}</b>\nПоточний баланс: <b>$${updatedBalance}</b>`, { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) });
             return ctx.scene.leave();
@@ -106,7 +107,7 @@ const submitProofWizard = new Scenes.WizardScene(
 
         const bountyId = ctx.wizard.state.bountyId;
         try {
-            const { error: updErr } = await supabase.from('bounties').update({ status: 'review' }).eq('id', bountyId).eq('executor_id', ctx.from.id);
+            const { error: updErr } = await supabase.from('bounties').update({ status: 'review' }).eq('id', bountyId).eq('executor_id', ctx.from.id.toString());
             if (updErr) throw updErr;
 
             const { data: bounty } = await supabase.from('bounties').select('*').eq('id', bountyId).single();
@@ -177,11 +178,10 @@ const createTaskWizard = new Scenes.WizardScene(
         try {
             const user = await syncUser(ctx);
             
-            // Надійне оновлення фінансів (Escrow)
             const newBalance = Number((user.balance - reward).toFixed(2));
             const newFrozen = Number(((user.frozen_balance || 0) + reward).toFixed(2));
 
-            const { error: updErr } = await supabase.from('users').update({ balance: newBalance, frozen_balance: newFrozen }).eq('telegram_id', ctx.from.id);
+            const { error: updErr } = await supabase.from('users').update({ balance: newBalance.toString(), frozen_balance: newFrozen.toString() }).eq('telegram_id', ctx.from.id.toString());
             if (updErr) throw updErr;
 
             const { error: insErr } = await supabase.from('bounties').insert([{ title, reward, description, status: 'pending_approval', creator_id: ctx.from.id }]);
@@ -205,10 +205,8 @@ async function cancelScene(ctx) {
 
 const stage = new Scenes.Stage([createTaskWizard, depositWizard, submitProofWizard]);
 
-// --- ГЛОБАЛЬНІ MIDDLEWARES ---
 bot.use(session());
 
-// Автоматичний вихід зі сцени, якщо користувач натискає inline-кнопку під час вводу
 bot.on('callback_query', async (ctx, next) => {
     if (ctx.scene && ctx.scene.current) {
         await ctx.scene.leave();
@@ -261,7 +259,7 @@ bot.action('list_tasks', async (ctx) => {
 
 bot.action('my_active_tasks', async (ctx) => {
     await ctx.answerCbQuery();
-    const { data: active } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'in_progress');
+    const { data: active } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id.toString()).eq('status', 'in_progress');
     if (!active || active.length === 0) return ctx.editMessageText('📭 <b>Немає активних завдань.</b>', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
     
     await ctx.deleteMessage().catch(()=>{});
@@ -273,7 +271,7 @@ bot.action('my_active_tasks', async (ctx) => {
 
 bot.action('my_completed_tasks', async (ctx) => {
     await ctx.answerCbQuery();
-    const { data: completed } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
+    const { data: completed } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id.toString()).eq('status', 'completed');
     if (!completed || completed.length === 0) return ctx.editMessageText('📭 <b>Історія порожня.</b>', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
     
     await ctx.deleteMessage().catch(()=>{});
@@ -296,7 +294,7 @@ bot.action(/take_(.+)/, async (ctx) => {
 });
 
 bot.action(/cancel_task_(.+)/, async (ctx) => {
-    await supabase.from('bounties').update({ status: 'open', executor_id: null }).eq('id', ctx.match[1]).eq('executor_id', ctx.from.id);
+    await supabase.from('bounties').update({ status: 'open', executor_id: null }).eq('id', ctx.match[1]).eq('executor_id', ctx.from.id.toString());
     await ctx.answerCbQuery('Відмова зафіксована');
     await ctx.editMessageText('❌ <b>Ви відмовилися від завдання.</b>', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
 });
@@ -335,11 +333,11 @@ bot.action(/adm_rej_pub_(.+)/, async (ctx) => {
     const id = ctx.match[1];
     const { data: b } = await supabase.from('bounties').select('*').eq('id', id).single();
     if (b) {
-        const { data: c } = await supabase.from('users').select('*').eq('telegram_id', b.creator_id).single();
+        const { data: c } = await supabase.from('users').select('*').eq('telegram_id', b.creator_id.toString()).single();
         if (c) {
             const restoredBalance = Number((c.balance + b.reward).toFixed(2));
             const restoredFrozen = Number((Math.max(0, c.frozen_balance - b.reward)).toFixed(2));
-            await supabase.from('users').update({ balance: restoredBalance, frozen_balance: restoredFrozen }).eq('telegram_id', b.creator_id);
+            await supabase.from('users').update({ balance: restoredBalance.toString(), frozen_balance: restoredFrozen.toString() }).eq('telegram_id', b.creator_id.toString());
         }
         await supabase.from('bounties').delete().eq('id', id);
     }
@@ -363,13 +361,11 @@ bot.action(/adm_app_rev_(.+)/, async (ctx) => {
     if (b) {
         const netReward = Number((b.reward * (1 - COMMISSION_RATE)).toFixed(2));
         
-        // Списання у замовника з резерву
-        const { data: c } = await supabase.from('users').select('*').eq('telegram_id', b.creator_id).single();
-        if (c) await supabase.from('users').update({ frozen_balance: Number(Math.max(0, c.frozen_balance - b.reward).toFixed(2)) }).eq('telegram_id', b.creator_id);
+        const { data: c } = await supabase.from('users').select('*').eq('telegram_id', b.creator_id.toString()).single();
+        if (c) await supabase.from('users').update({ frozen_balance: Number(Math.max(0, c.frozen_balance - b.reward).toFixed(2)).toString() }).eq('telegram_id', b.creator_id.toString());
         
-        // Зарахування виконавцю
-        const { data: e } = await supabase.from('users').select('*').eq('telegram_id', b.executor_id).single();
-        if (e) await supabase.from('users').update({ balance: Number(((e.balance || 0) + netReward).toFixed(2)) }).eq('telegram_id', b.executor_id);
+        const { data: e } = await supabase.from('users').select('*').eq('telegram_id', b.executor_id.toString()).single();
+        if (e) await supabase.from('users').update({ balance: Number(((e.balance || 0) + netReward).toFixed(2)).toString() }).eq('telegram_id', b.executor_id.toString());
 
         await supabase.from('bounties').update({ status: 'completed' }).eq('id', id);
         await ctx.editMessageText(`✅ <b>Угода закрита. Виконавцю переведено $${netReward}.</b>`, { parse_mode: 'HTML' }).catch(()=>{});
@@ -385,10 +381,8 @@ bot.action(/adm_rej_rev_(.+)/, async (ctx) => {
     try { await bot.telegram.sendMessage(b.executor_id, `⚠️ Звіт за завданням <b>${b?.title}</b> відхилено. Надішліть новий.`, { parse_mode: 'HTML' }); } catch(e){}
 });
 
-// Глобальний захист від завислих повідомлень поза сценою
 bot.on('message', async (ctx, next) => {
     if (!ctx.scene || !ctx.scene.current) {
-        // Якщо користувач щось пише, але він не в сцені
         await ctx.reply('Оберіть дію з меню 👇', getMainMenu(ctx.from.id));
     }
     return next();
