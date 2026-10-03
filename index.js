@@ -6,127 +6,170 @@ import { supabase } from './supabase.js';
 dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const ADMIN_ID = 1038839260; // Твій точний ID
+const ADMIN_ID = 1038839260; 
 
-// 🖼 ПОСИЛАННЯ НА БАННЕР (Можеш замінити на свій дизайн з Canva)
-const WELCOME_IMAGE = 'https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?q=80&w=1000&auto=format&fit=crop';
-
-// Глобальний обробник помилок (Анти-краш)
+// --- СИСТЕМА БЕЗОПАСНОСТИ ТА ЛОГУВАННЯ ---
 bot.catch((err, ctx) => {
-    console.error(`[Global Error]:`, err);
+    console.error(`[System Error]:`, err);
+    try {
+        ctx.reply('⚠️ Сталася системна помилка. Будь ласка, спробуйте пізніше або поверніться в меню /start.').catch(()=>{});
+    } catch(e) {}
 });
 
-// --- ГЕНЕРАТОР ГОЛОВНОГО МЕНЮ ---
+// --- ІНТЕРФЕЙС: ГОЛОВНЕ МЕНЮ ---
 function getMainMenu() {
     return Markup.inlineKeyboard([
-        [Markup.button.callback('🔍 Знайти баунті', 'list_tasks'), Markup.button.callback('💼 Мій кабінет', 'my_profile')],
-        [Markup.button.callback('📂 Мої завдання', 'my_active_tasks'), Markup.button.callback('📜 Історія', 'my_completed_tasks')],
-        [Markup.button.callback('➕ Створити баунті', 'create_task')],
-        [Markup.button.callback('👑 Адмін-панель', 'admin_main')]
+        [Markup.button.callback('💼 Мій кабінет', 'my_profile'), Markup.button.callback('📋 Біржа завдань', 'list_tasks')],
+        [Markup.button.callback('📂 Мої завдання', 'my_active_tasks'), Markup.button.callback('📊 Історія', 'my_completed_tasks')],
+        [Markup.button.callback('➕ Створити завдання', 'create_task')],
+        [Markup.button.callback('⚙️ Панель управління (Адмін)', 'admin_main')]
     ]);
 }
 
-// --- СЦЕНА СТВОРЕННЯ ЗАВДАННЯ ---
+// Універсальна функція повернення (щоб не дублювати код)
+const backButton = Markup.inlineKeyboard([[Markup.button.callback('🔙 Назад', 'main_menu')]]);
+
+// --- БІЗНЕС-ЛОГІКА: СТВОРЕННЯ ЗАВДАННЯ (WIZARD) ---
 const createTaskWizard = new Scenes.WizardScene(
     'createTaskWizard',
     async (ctx) => {
-        await ctx.editMessageText('<blockquote><b>✍️ Крок 1: Назва</b>\n\nВведіть коротку та зрозумілу назву для завдання.</blockquote>\n\n<i>(Напишіть /cancel для скасування)</i>', { parse_mode: 'HTML' }).catch(()=>{});
+        await ctx.editMessageText(
+            '<b>Створення нового завдання (1/3)</b>\n\nВведіть коротку та чітку назву завдання.\n<i>(Надішліть /cancel для скасування)</i>', 
+            { parse_mode: 'HTML' }
+        ).catch(async () => {
+            await ctx.reply('<b>Створення нового завдання (1/3)</b>\n\nВведіть коротку та чітку назву завдання.', { parse_mode: 'HTML' });
+        });
         return ctx.wizard.next();
     },
     async (ctx) => {
+        if (ctx.message.text === '/cancel') return cancelWizard(ctx);
         ctx.wizard.state.title = ctx.message.text;
-        await ctx.reply('<blockquote><b>💰 Крок 2: Нагорода</b>\n\nВведіть суму нагороди в доларах (тільки цифру, наприклад: 50).</blockquote>', { parse_mode: 'HTML' });
+        await ctx.reply('<b>Бюджет завдання (2/3)</b>\n\nВведіть суму винагороди у доларах США (лише число, наприклад: 50 або 150):', { parse_mode: 'HTML' });
         return ctx.wizard.next();
     },
     async (ctx) => {
+        if (ctx.message.text === '/cancel') return cancelWizard(ctx);
         const reward = parseFloat(ctx.message.text);
         if (isNaN(reward)) {
-            await ctx.reply('❌ Помилка: сума має бути цифрою. Почніть спочатку.', getMainMenu());
+            await ctx.reply('❌ Помилка: бюджет має бути вказаний числом. Операцію скасовано.', backButton);
             return ctx.scene.leave();
         }
         ctx.wizard.state.reward = reward;
-        await ctx.reply('<blockquote><b>📝 Крок 3: Опис</b>\n\nОпишіть, що саме потрібно зробити (вимоги, дедлайни, формат здачі).</blockquote>', { parse_mode: 'HTML' });
+        await ctx.reply('<b>Технічне завдання (3/3)</b>\n\nОпишіть детальні вимоги, умови виконання та критерії прийомки роботи:', { parse_mode: 'HTML' });
         return ctx.wizard.next();
     },
     async (ctx) => {
+        if (ctx.message.text === '/cancel') return cancelWizard(ctx);
         ctx.wizard.state.description = ctx.message.text;
         const { title, reward, description } = ctx.wizard.state;
 
         try {
-            const { error } = await supabase.from('bounties').insert([{ title, reward, description, status: 'pending_approval', creator_id: ctx.from.id }]);
+            const { error } = await supabase.from('bounties').insert([{ 
+                title, reward, description, status: 'pending_approval', creator_id: ctx.from.id 
+            }]);
+            
             if (error) throw error;
             
             await ctx.reply(
-                `⏳ <b>Ваше баунті відправлено на модерацію!</b>\n\n<blockquote>💎 <b>${title}</b>\n💰 $${reward}</blockquote>\n\nОчікуйте на підтвердження адміністратором.`, 
+                `✅ <b>Завдання успішно сформовано</b>\n\nСтатус: <i>Очікує модерації</i>\nПісля перевірки адміністратором воно з'явиться на біржі.`, 
                 { parse_mode: 'HTML', ...getMainMenu() }
             );
 
-            // Красиве сповіщення адміну
-            try { await bot.telegram.sendMessage(ADMIN_ID, `🔔 <b>Нова заявка на баунті!</b>\n\nВід: @${ctx.from.username || 'Користувача'}\nНазва: <b>${title}</b>\nСума: $${reward}`, { parse_mode: 'HTML' }); } catch (e) {}
+            // Системне сповіщення адміну
+            try { 
+                await bot.telegram.sendMessage(ADMIN_ID, `🔔 <b>Система: Нова заявка</b>\n\nКлієнт: <code>${ctx.from.id}</code>\nЗавдання: ${title}\nБюджет: $${reward}`, { parse_mode: 'HTML' }); 
+            } catch (e) {}
+            
         } catch (err) {
-            await ctx.reply('⚠️ Системна помилка збереження.', getMainMenu());
+            await ctx.reply('⚠️ Помилка бази даних. Спробуйте пізніше.', backButton);
         }
         return ctx.scene.leave();
     }
 );
 
-createTaskWizard.use(async (ctx, next) => {
-    if (ctx.message && ctx.message.text === '/cancel') {
-        await ctx.reply('❌ Створення скасовано.', getMainMenu());
-        return ctx.scene.leave();
-    }
-    return next();
-});
+async function cancelWizard(ctx) {
+    await ctx.reply('❌ Створення завдання скасовано.', getMainMenu());
+    return ctx.scene.leave();
+}
 
 const stage = new Scenes.Stage([createTaskWizard]);
 bot.use(session());
 bot.use(stage.middleware());
 
-// --- СТАРТ ТА РЕЄСТРАЦІЯ ---
+// --- СТАРТ ТА ІНТЕРФЕЙС ---
 bot.start(async (ctx) => {
-  const from = ctx.from;
-  try {
-    await supabase.from('users').upsert({ telegram_id: from.id, username: from.username || null, first_name: from.first_name || 'Користувач' }, { onConflict: 'telegram_id' });
-    
-    const welcomeText = `👋 Привіт, <b>${from.first_name}</b>!\n\nЛаскаво просимо до <b>Pry.it</b> — елітної платформи для баунті-завдань.\nВиконуй завдання, підвищуй свій ранг та заробляй!\n\n👇 <b>Обери дію в меню:</b>`;
-    
-    // Відправляємо картинку з меню
-    await ctx.replyWithPhoto({ url: WELCOME_IMAGE }, { caption: welcomeText, parse_mode: 'HTML', ...getMainMenu() });
-  } catch (err) {
-    await ctx.reply('⚠ Меню готове до роботи.', getMainMenu());
-  }
+    const from = ctx.from;
+    try {
+        await supabase.from('users').upsert(
+            { telegram_id: from.id, username: from.username || null, first_name: from.first_name || 'Користувач' }, 
+            { onConflict: 'telegram_id' }
+        );
+        
+        await ctx.reply(
+            `Платформа <b>Pry.it</b>\n\nСистема управління завданнями та виплатами. Оберіть необхідний розділ меню для продовження.`, 
+            { parse_mode: 'HTML', ...getMainMenu() }
+        );
+    } catch (err) {
+        await ctx.reply('Система готова до роботи.', getMainMenu());
+    }
 });
 
-// Кнопка: Повернення в головне меню (без фото, тільки текст)
 bot.action('main_menu', async (ctx) => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(`🏠 <b>Головне меню</b>\n\n👇 Обери потрібну дію:`, { parse_mode: 'HTML', ...getMainMenu() }).catch(()=>{});
+    await ctx.editMessageText(
+        `Платформа <b>Pry.it</b>\n\nСистема управління завданнями та виплатами. Оберіть необхідний розділ меню для продовження.`, 
+        { parse_mode: 'HTML', ...getMainMenu() }
+    ).catch(()=>{});
 });
 
-// --- СТВОРЕННЯ ЗАВДАННЯ ---
 bot.action('create_task', async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.scene.enter('createTaskWizard');
 });
 
-// --- СПИСКИ ЗАВДАНЬ ДЛЯ КОРИСТУВАЧА ---
+// --- ПРОФІЛЬ ---
+bot.action('my_profile', async (ctx) => {
+    await ctx.answerCbQuery();
+    try {
+        const { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
+        const { data: completedBounties } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
+        
+        const count = completedBounties ? completedBounties.length : 0;
+        const earnings = completedBounties ? completedBounties.reduce((sum, b) => sum + (b.reward || 0), 0) : 0;
+
+        const profileText = `
+💼 <b>Особистий кабінет</b>
+
+Користувач: <b>${user?.first_name || ctx.from.first_name}</b>
+Системний ID: <code>${ctx.from.id}</code>
+
+📊 <b>Статистика:</b>
+Успішних угод: <b>${count}</b>
+Загальний дохід: <b>$${earnings}</b>
+        `;
+        await ctx.editMessageText(profileText, { parse_mode: 'HTML', ...backButton }).catch(()=>{});
+    } catch (err) {
+        await ctx.answerCbQuery('Помилка завантаження профілю', {show_alert:true});
+    }
+});
+
+// --- БІРЖА ТА РОБОТА З ЗАВДАННЯМИ ---
 bot.action('list_tasks', async (ctx) => {
     await ctx.answerCbQuery();
     try {
-        const { data: bounties, error } = await supabase.from('bounties').select('*').eq('status', 'open');
-        if (error) throw error;
+        const { data: bounties } = await supabase.from('bounties').select('*').eq('status', 'open');
         
         if (!bounties || bounties.length === 0) {
-            return ctx.editMessageText('📭 <b>Наразі немає відкритих баунті.</b>\nПовертайтеся пізніше!', { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Назад', 'main_menu')]]) }).catch(()=>{});
+            return ctx.editMessageText('📭 <b>Біржа порожня.</b>\nНаразі немає відкритих завдань для виконання.', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
         }
 
         await ctx.deleteMessage().catch(()=>{}); 
-        await ctx.reply('📋 <b>Доступні завдання на ринку:</b>', { parse_mode: 'HTML' });
+        await ctx.reply('📋 <b>Доступні завдання на біржі:</b>', { parse_mode: 'HTML' });
 
         for (const bounty of bounties) {
             await ctx.reply(
-                `<blockquote><b>💎 ${bounty.title}</b>\n\n💰 <b>Нагорода:</b> $${bounty.reward}\n📝 <b>Опис:</b> ${bounty.description}</blockquote>`, 
-                { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('⚡ Взяти в роботу', `take_${bounty.id}`)]]) }
+                `<b>${bounty.title}</b>\n\nБюджет: <b>$${bounty.reward}</b>\nТЗ: ${bounty.description}`, 
+                { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('Взяти в роботу', `take_${bounty.id}`)]]) }
             );
         }
     } catch (err) {}
@@ -138,17 +181,17 @@ bot.action('my_active_tasks', async (ctx) => {
         const { data: activeTasks } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'in_progress');
         
         if (!activeTasks || activeTasks.length === 0) {
-            return ctx.editMessageText('📭 <b>У вас немає активних завдань.</b>\nЧас знайти нове баунті!', { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 Назад', 'main_menu')]]) }).catch(()=>{});
+            return ctx.editMessageText('📭 <b>Немає активних завдань.</b>\nВи не маєте завдань у процесі виконання.', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
         }
 
         await ctx.deleteMessage().catch(()=>{});
-        await ctx.reply('📂 <b>Ваші активні завдання:</b>', { parse_mode: 'HTML' });
+        await ctx.reply('📂 <b>Ваші завдання в роботі:</b>', { parse_mode: 'HTML' });
 
         for (const bounty of activeTasks) {
             await ctx.reply(
-                `<blockquote><b>💎 ${bounty.title}</b>\n💰 Нагорода: $${bounty.reward}</blockquote>\n\n<i>Щойно закінчите, тисніть кнопку здачі:</i>`, 
+                `<b>${bounty.title}</b>\nБюджет: $${bounty.reward}\n\n<i>Для передачі результатів натисніть кнопку нижче:</i>`, 
                 { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-                    [Markup.button.callback('📤 Відправити на перевірку', `submit_${bounty.id}`)],
+                    [Markup.button.callback('✅ Здати на перевірку', `submit_${bounty.id}`)],
                     [Markup.button.callback('❌ Відмовитися', `cancel_task_${bounty.id}`)]
                 ])}
             );
@@ -156,200 +199,185 @@ bot.action('my_active_tasks', async (ctx) => {
     } catch (err) {}
 });
 
-// --- ПРОФІЛЬ ТА ГЕЙМІФІКАЦІЯ ---
-bot.action('my_profile', async (ctx) => {
+bot.action('my_completed_tasks', async (ctx) => {
     await ctx.answerCbQuery();
     try {
-        let { data: user } = await supabase.from('users').select('*').eq('telegram_id', ctx.from.id).single();
-        if (!user) user = { first_name: ctx.from.first_name, telegram_id: ctx.from.id };
-        const { data: completedBounties } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
+        const { data: completedTasks } = await supabase.from('bounties').select('*').eq('executor_id', ctx.from.id).eq('status', 'completed');
         
-        const count = completedBounties ? completedBounties.length : 0;
-        const earnings = completedBounties ? completedBounties.reduce((sum, b) => sum + (b.reward || 0), 0) : 0;
+        if (!completedTasks || completedTasks.length === 0) {
+            return ctx.editMessageText('📭 <b>Історія порожня.</b>\nУ вас немає завершених завдань.', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
+        }
 
-        // Система рангів
-        let rank = '🥉 Новачок';
-        let nextGoal = 5;
-        if (count >= 5) { rank = '🥈 Досвідчений'; nextGoal = 15; }
-        if (count >= 15) { rank = '🥇 Профі'; nextGoal = 30; }
-        if (count >= 30) { rank = '💎 Легенда Pry.it'; nextGoal = count; } // Максимум
+        await ctx.deleteMessage().catch(()=>{});
+        await ctx.reply('📊 <b>Історія успішних угод:</b>', { parse_mode: 'HTML' });
 
-        // Генерація шкали прогресу (10 блоків)
-        const progressPercent = Math.min(count / nextGoal, 1);
-        const filledBlocks = Math.floor(progressPercent * 10);
-        const progressBar = '🟩'.repeat(filledBlocks) + '⬜️'.repeat(10 - filledBlocks);
-
-        const profileText = `
-💼 <b>ОСОБИСТИЙ КАБІНЕТ</b>
-
-👤 <b>Користувач:</b> ${user.first_name}
-🆔 <b>ID:</b> <code>${user.telegram_id}</code>
-🏆 <b>Ваш ранг:</b> ${rank}
-
-📊 <b>Статистика:</b>
- ├ Виконано баунті: <b>${count}</b>
- └ Загальний дохід: <b>$${earnings}</b>
-
-📈 <b>Прогрес до наступного рангу:</b>
-[ ${progressBar} ] ${count}/${nextGoal}
-        `;
-
-        await ctx.editMessageText(profileText, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В головне меню', 'main_menu')]]) }).catch(()=>{});
+        for (const bounty of completedTasks) {
+            await ctx.reply(`✅ <b>${bounty.title}</b>\nОплачено: <b>$${bounty.reward}</b>`, { parse_mode: 'HTML' });
+        }
+        await ctx.reply('Навігація:', backButton);
     } catch (err) {}
 });
 
-// --- ВЗАЄМОДІЯ ІЗ ЗАВДАННЯМИ ---
+// --- ЕКШЕНИ ЗАВДАНЬ ---
 bot.action(/take_(.+)/, async (ctx) => {
   const bountyId = ctx.match[1];
   try {
     const { data: bounty, error } = await supabase.from('bounties').select('*').eq('id', bountyId).eq('status', 'open').single();
-    if (error || !bounty) return ctx.answerCbQuery('❌ Завдання вже забрали або воно недоступне!', {show_alert: true});
+    if (error || !bounty) return ctx.answerCbQuery('❌ Завдання вже не актуальне', {show_alert: true});
 
     await supabase.from('bounties').update({ status: 'in_progress', executor_id: ctx.from.id }).eq('id', bountyId);
     
-    // Красиве спливаюче вікно
-    await ctx.answerCbQuery('✅ Ви успішно взяли баунті в роботу!', {show_alert: true});
-    
+    await ctx.answerCbQuery('✅ Завдання успішно закріплено за вами');
     await ctx.editMessageText(
-      `<blockquote><b>💎 ${bounty.title}</b>\n💰 $${bounty.reward}</blockquote>\n\n✅ <b>Завдання закріплено за вами!</b>\nМожете приступати до виконання.`,
-      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('📤 Відправити на перевірку', `submit_${bounty.id}`)], [Markup.button.callback('🔙 В меню', 'main_menu')]]) }
+      `<b>${bounty.title}</b>\nБюджет: $${bounty.reward}\n\n✅ <b>Статус:</b> В роботі.\nВиконайте ТЗ та надішліть звіт через систему.`,
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Здати на перевірку', `submit_${bounty.id}`)], [Markup.button.callback('🔙 В меню', 'main_menu')]]) }
     ).catch(()=>{});
-  } catch (err) { ctx.answerCbQuery('⚠️ Помилка.'); }
+  } catch (err) { ctx.answerCbQuery('Помилка системи', {show_alert:true}); }
 });
 
 bot.action(/submit_(.+)/, async (ctx) => {
   const bountyId = ctx.match[1];
   try {
     await supabase.from('bounties').update({ status: 'review' }).eq('id', bountyId).eq('executor_id', ctx.from.id);
-    await ctx.answerCbQuery('📤 Звіт надіслано!', {show_alert: true});
-    await ctx.editMessageText(`✅ <b>Звіт надіслано модератору.</b>\nОчікуйте на зарахування коштів!`, { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В головне меню', 'main_menu')]]) }).catch(()=>{});
-    try { await bot.telegram.sendMessage(ADMIN_ID, `🔔 <b>Нова робота на перевірку!</b>\nID: <code>${bountyId}</code>`, { parse_mode: 'HTML' }); } catch(e){}
-  } catch (err) { ctx.answerCbQuery('⚠️ Помилка.', {show_alert:true}); }
+    await ctx.answerCbQuery('Звіт передано');
+    await ctx.editMessageText(`✅ <b>Звіт успішно передано.</b>\nОчікуйте рішення адміністратора.`, { parse_mode: 'HTML', ...backButton }).catch(()=>{});
+    try { await bot.telegram.sendMessage(ADMIN_ID, `🔔 <b>Система: Звіт на перевірку</b>\nID завдання: <code>${bountyId}</code>`, { parse_mode: 'HTML' }); } catch(e){}
+  } catch (err) { ctx.answerCbQuery('Помилка', {show_alert:true}); }
 });
 
 bot.action(/cancel_task_(.+)/, async (ctx) => {
     const bountyId = ctx.match[1];
     await supabase.from('bounties').update({ status: 'open', executor_id: null }).eq('id', bountyId).eq('executor_id', ctx.from.id);
-    await ctx.answerCbQuery('❌ Ви відмовилися від баунті.', {show_alert: true});
-    await ctx.editMessageText('❌ <b>Ви відмовилися від виконання.</b>\nЗавдання повернуто на ринок.', { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В головне меню', 'main_menu')]]) }).catch(()=>{});
+    await ctx.answerCbQuery('Ви відмовилися від завдання');
+    await ctx.editMessageText('❌ <b>Відмова зафіксована.</b>\nЗавдання повернуто на біржу.', { parse_mode: 'HTML', ...backButton }).catch(()=>{});
 });
 
 
 // ==========================================
-// 👑 МЕГА АДМІН-ПАНЕЛЬ
+// ⚙️ ПАНЕЛЬ УПРАВЛІННЯ (АДМІН)
 // ==========================================
 
 function getAdminMenu() {
     return Markup.inlineKeyboard([
-        [Markup.button.callback('🆕 Заявки на публікацію', 'admin_pub_list')],
-        [Markup.button.callback('🔍 Завдання на перевірці', 'admin_rev_list')],
+        [Markup.button.callback('📝 Модерація заявок', 'admin_pub_list')],
+        [Markup.button.callback('🔍 Перевірка звітів', 'admin_rev_list')],
         [Markup.button.callback('🗑 Управління базою', 'admin_man_list')],
-        [Markup.button.callback('🔙 В головне меню', 'main_menu')]
+        [Markup.button.callback('🔙 До головного меню', 'main_menu')]
     ]);
 }
 
 bot.action('admin_main', async (ctx) => {
-    if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔ Доступ заборонено. Тільки для адміністратора!', { show_alert: true });
+    if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔ Відмовлено в доступі. Рівень: Адміністратор.', { show_alert: true });
     await ctx.answerCbQuery();
-    await ctx.editMessageText('👑 <b>ПАНЕЛЬ АДМІНІСТРАТОРА</b>\n\nОберіть потрібний розділ контролю:', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
+    await ctx.editMessageText('⚙️ <b>Системна Панель Управління</b>\n\nОберіть директорію для роботи:', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
 });
 
+// 1. Модерація (Публікація на біржу)
 bot.action('admin_pub_list', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔');
     const { data: tasks } = await supabase.from('bounties').select('*').eq('status', 'pending_approval');
-    if (!tasks || tasks.length === 0) return ctx.editMessageText('📭 Немає нових заявок на публікацію.', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
+    if (!tasks || tasks.length === 0) return ctx.editMessageText('📭 <b>Черга порожня.</b>\nНемає нових завдань для модерації.', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
     
     await ctx.deleteMessage().catch(()=>{});
-    await ctx.reply('🆕 <b>Модерація нових завдань:</b>', { parse_mode: 'HTML' });
+    await ctx.reply('📝 <b>Модерація нових завдань:</b>', { parse_mode: 'HTML' });
     for (const t of tasks) {
-        await ctx.reply(`<blockquote><b>${t.title}</b>\n💰 $${t.reward}\n📝 ${t.description}</blockquote>`, {
+        await ctx.reply(`<b>${t.title}</b>\nБюджет: $${t.reward}\nID Клієнта: <code>${t.creator_id}</code>\nТЗ: ${t.description}`, {
             parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([
-                [Markup.button.callback('✅ Опублікувати', `adm_app_pub_${t.id}`), Markup.button.callback('❌ Видалити', `adm_rej_pub_${t.id}`)]
-            ])
+            ...Markup.inlineKeyboard([[Markup.button.callback('✅ Опублікувати', `adm_app_pub_${t.id}`), Markup.button.callback('❌ Відхилити', `adm_rej_pub_${t.id}`)]])
         });
     }
-    await ctx.reply('👇 Навігація:', { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В адмінку', 'admin_main')]]) });
+    await ctx.reply('Навігація:', { ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В адмін-панель', 'admin_main')]]) });
 });
 
 bot.action(/adm_app_pub_(.+)/, async (ctx) => {
     const id = ctx.match[1];
     await supabase.from('bounties').update({ status: 'open' }).eq('id', id);
-    await ctx.editMessageText('✅ <b>Завдання успішно опубліковано на ринку!</b>', { parse_mode: 'HTML' }).catch(()=>{});
+    await ctx.editMessageText('✅ <b>Опубліковано.</b> Завдання доступне на біржі.', { parse_mode: 'HTML' }).catch(()=>{});
 });
 
 bot.action(/adm_rej_pub_(.+)/, async (ctx) => {
     const id = ctx.match[1];
     await supabase.from('bounties').delete().eq('id', id);
-    await ctx.editMessageText('❌ <b>Завдання відхилено та видалено.</b>', { parse_mode: 'HTML' }).catch(()=>{});
+    await ctx.editMessageText('❌ <b>Завдання видалено з системи.</b>', { parse_mode: 'HTML' }).catch(()=>{});
 });
 
+// 2. Перевірка виконаних (Аудит)
 bot.action('admin_rev_list', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔');
     const { data: tasks } = await supabase.from('bounties').select('*').eq('status', 'review');
-    if (!tasks || tasks.length === 0) return ctx.editMessageText('📭 Немає завдань на перевірці.', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
+    if (!tasks || tasks.length === 0) return ctx.editMessageText('📭 <b>Черга порожня.</b>\nНемає звітів на перевірці.', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
     
     await ctx.deleteMessage().catch(()=>{});
-    await ctx.reply('🔍 <b>Звіти виконавців на перевірку:</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🔍 <b>Аудит виконаних завдань:</b>', { parse_mode: 'HTML' });
     for (const t of tasks) {
-        await ctx.reply(`<blockquote><b>💎 ${t.title}</b>\n👤 Виконавець: <code>${t.executor_id}</code></blockquote>`, {
+        await ctx.reply(`<b>${t.title}</b>\nID Виконавця: <code>${t.executor_id}</code>`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([
-                [Markup.button.callback('💰 Підтвердити та Оплатити', `adm_app_rev_${t.id}`)],
-                [Markup.button.callback('🔄 На доопрацювання', `adm_rej_rev_${t.id}`)]
+                [Markup.button.callback('✅ Схвалити та Оплатити', `adm_app_rev_${t.id}`)],
+                [Markup.button.callback('🔄 Повернути на доопрацювання', `adm_rej_rev_${t.id}`)]
             ])
         });
     }
-    await ctx.reply('👇 Навігація:', { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В адмінку', 'admin_main')]]) });
+    await ctx.reply('Навігація:', { ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В адмін-панель', 'admin_main')]]) });
 });
 
 bot.action(/adm_app_rev_(.+)/, async (ctx) => {
     const id = ctx.match[1];
     const { data: bounty } = await supabase.from('bounties').select('*').eq('id', id).single();
     await supabase.from('bounties').update({ status: 'completed' }).eq('id', id);
-    await ctx.editMessageText('🎉 <b>Виконання зараховано!</b>', { parse_mode: 'HTML' }).catch(()=>{});
-    try { await bot.telegram.sendMessage(bounty.executor_id, `🎉 Вашу роботу <b>${bounty.title}</b> схвалено!\nНагорода <b>$${bounty.reward}</b> зарахована.`, { parse_mode: 'HTML' }); } catch(e){}
+    await ctx.editMessageText('✅ <b>Завдання закрито, виплату підтверджено.</b>', { parse_mode: 'HTML' }).catch(()=>{});
+    try { await bot.telegram.sendMessage(bounty.executor_id, `✅ <b>Система:</b> Вашу роботу <b>${bounty.title}</b> схвалено.\nКошти ($${bounty.reward}) зараховано до статистики.`, { parse_mode: 'HTML' }); } catch(e){}
 });
 
 bot.action(/adm_rej_rev_(.+)/, async (ctx) => {
     const id = ctx.match[1];
     const { data: bounty } = await supabase.from('bounties').select('*').eq('id', id).single();
     await supabase.from('bounties').update({ status: 'in_progress' }).eq('id', id);
-    await ctx.editMessageText('🔄 <b>Повернуто на доопрацювання.</b>', { parse_mode: 'HTML' }).catch(()=>{});
-    try { await bot.telegram.sendMessage(bounty.executor_id, `⚠️ Ваша робота <b>${bounty.title}</b> відхилена адміном. Будь ласка, переробіть!`, { parse_mode: 'HTML' }); } catch(e){}
+    await ctx.editMessageText('🔄 <b>Завдання повернуто виконавцю.</b>', { parse_mode: 'HTML' }).catch(()=>{});
+    try { await bot.telegram.sendMessage(bounty.executor_id, `⚠️ <b>Система:</b> Вашу роботу <b>${bounty.title}</b> не прийнято.\nБудь ласка, доопрацюйте технічне завдання.`, { parse_mode: 'HTML' }); } catch(e){}
 });
 
+// 3. Управління базою (Видалення будь-якого активного)
 bot.action('admin_man_list', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔');
     const { data: tasks } = await supabase.from('bounties').select('*').in('status', ['open', 'in_progress']);
-    if (!tasks || tasks.length === 0) return ctx.editMessageText('📭 Немає активних завдань.', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
+    if (!tasks || tasks.length === 0) return ctx.editMessageText('📭 <b>База порожня.</b>\nАктивних завдань не знайдено.', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
     
     await ctx.deleteMessage().catch(()=>{});
-    await ctx.reply('🗑 <b>Управління активними завданнями:</b>', { parse_mode: 'HTML' });
+    await ctx.reply('🗑 <b>Управління активними завданнями бази:</b>', { parse_mode: 'HTML' });
     for (const t of tasks) {
-        await ctx.reply(`🔹 <b>${t.title}</b> (Статус: ${t.status})`, {
+        await ctx.reply(`<b>${t.title}</b> (Статус: ${t.status})`, {
             parse_mode: 'HTML',
             ...Markup.inlineKeyboard([[Markup.button.callback('🗑 Примусово видалити', `adm_del_task_${t.id}`)]])
         });
     }
-    await ctx.reply('👇 Навігація:', { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В адмінку', 'admin_main')]]) });
+    await ctx.reply('Навігація:', { ...Markup.inlineKeyboard([[Markup.button.callback('🔙 В адмін-панель', 'admin_main')]]) });
 });
 
 bot.action(/adm_del_task_(.+)/, async (ctx) => {
     const id = ctx.match[1];
     await supabase.from('bounties').delete().eq('id', id);
-    await ctx.editMessageText('🗑 <b>Завдання знищено.</b>', { parse_mode: 'HTML' }).catch(()=>{});
+    await ctx.editMessageText('🗑 <b>Об\'єкт успішно знищено.</b>', { parse_mode: 'HTML' }).catch(()=>{});
 });
 
 // ==========================================
-// ЗАПУСК СЕРВЕРА
+// ЗАПУСК СЕРВЕРА (ІЗ ЗАХИСТОМ ВІД КОНФЛІКТІВ)
 // ==========================================
-bot.launch(() => console.log('🤖 Бот Pry.it (PREMIUM VERSION) успішно запущено!'));
+
+// dropPendingUpdates: true гарантує, що при перезапуску на Render старі запити не створять конфлікту
+bot.launch({ dropPendingUpdates: true })
+    .then(() => console.log('🤖 Pry.it (Enterprise Core) успішно запущено!'))
+    .catch(err => console.error('Помилка запуску:', err));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-http.createServer((req, res) => {
+// Healthcheck порт для Render
+const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Pry.it Premium Bot is running!');
-}).listen(process.env.PORT || 3000);
+    res.end('Pry.it API is active.');
+});
+
+server.listen(process.env.PORT || 3000, () => {
+    console.log(`Сервер працює на порту ${process.env.PORT || 3000}`);
+});
