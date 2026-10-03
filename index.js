@@ -16,17 +16,23 @@ bot.catch((err, ctx) => {
     } catch(e) {}
 });
 
-// --- ІНТЕРФЕЙС: ГОЛОВНЕ МЕНЮ ---
-function getMainMenu() {
-    return Markup.inlineKeyboard([
+// --- ДИНАМІЧНЕ ІНТЕРФЕЙС: ГОЛОВНЕ МЕНЮ ---
+// Тепер бот перевіряє ID. Кнопка Адміна з'явиться ТІЛЬКИ у тебе.
+function getMainMenu(userId) {
+    const buttons = [
         [Markup.button.callback('💼 Мій кабінет', 'my_profile'), Markup.button.callback('📋 Біржа завдань', 'list_tasks')],
         [Markup.button.callback('📂 Мої завдання', 'my_active_tasks'), Markup.button.callback('📊 Історія', 'my_completed_tasks')],
-        [Markup.button.callback('➕ Створити завдання', 'create_task')],
-        [Markup.button.callback('⚙️ Панель управління (Адмін)', 'admin_main')]
-    ]);
+        [Markup.button.callback('➕ Створити завдання', 'create_task')]
+    ];
+    
+    // Якщо меню викликаєш ти (Адмін), додаємо секретну кнопку
+    if (userId === ADMIN_ID) {
+        buttons.push([Markup.button.callback('⚙️ Панель управління (Адмін)', 'admin_main')]);
+    }
+    
+    return Markup.inlineKeyboard(buttons);
 }
 
-// Універсальна функція повернення (щоб не дублювати код)
 const backButton = Markup.inlineKeyboard([[Markup.button.callback('🔙 Назад', 'main_menu')]]);
 
 // --- БІЗНЕС-ЛОГІКА: СТВОРЕННЯ ЗАВДАННЯ (WIZARD) ---
@@ -51,7 +57,7 @@ const createTaskWizard = new Scenes.WizardScene(
         if (ctx.message.text === '/cancel') return cancelWizard(ctx);
         const reward = parseFloat(ctx.message.text);
         if (isNaN(reward)) {
-            await ctx.reply('❌ Помилка: бюджет має бути вказаний числом. Операцію скасовано.', backButton);
+            await ctx.reply('❌ Помилка: бюджет має бути вказаний числом. Операцію скасовано.', getMainMenu(ctx.from.id));
             return ctx.scene.leave();
         }
         ctx.wizard.state.reward = reward;
@@ -72,10 +78,9 @@ const createTaskWizard = new Scenes.WizardScene(
             
             await ctx.reply(
                 `✅ <b>Завдання успішно сформовано</b>\n\nСтатус: <i>Очікує модерації</i>\nПісля перевірки адміністратором воно з'явиться на біржі.`, 
-                { parse_mode: 'HTML', ...getMainMenu() }
+                { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) }
             );
 
-            // Системне сповіщення адміну
             try { 
                 await bot.telegram.sendMessage(ADMIN_ID, `🔔 <b>Система: Нова заявка</b>\n\nКлієнт: <code>${ctx.from.id}</code>\nЗавдання: ${title}\nБюджет: $${reward}`, { parse_mode: 'HTML' }); 
             } catch (e) {}
@@ -88,7 +93,7 @@ const createTaskWizard = new Scenes.WizardScene(
 );
 
 async function cancelWizard(ctx) {
-    await ctx.reply('❌ Створення завдання скасовано.', getMainMenu());
+    await ctx.reply('❌ Створення завдання скасовано.', getMainMenu(ctx.from.id));
     return ctx.scene.leave();
 }
 
@@ -107,10 +112,10 @@ bot.start(async (ctx) => {
         
         await ctx.reply(
             `Платформа <b>Pry.it</b>\n\nСистема управління завданнями та виплатами. Оберіть необхідний розділ меню для продовження.`, 
-            { parse_mode: 'HTML', ...getMainMenu() }
+            { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) }
         );
     } catch (err) {
-        await ctx.reply('Система готова до роботи.', getMainMenu());
+        await ctx.reply('Система готова до роботи.', getMainMenu(ctx.from.id));
     }
 });
 
@@ -118,7 +123,7 @@ bot.action('main_menu', async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
         `Платформа <b>Pry.it</b>\n\nСистема управління завданнями та виплатами. Оберіть необхідний розділ меню для продовження.`, 
-        { parse_mode: 'HTML', ...getMainMenu() }
+        { parse_mode: 'HTML', ...getMainMenu(ctx.from.id) }
     ).catch(()=>{});
 });
 
@@ -272,7 +277,6 @@ bot.action('admin_main', async (ctx) => {
     await ctx.editMessageText('⚙️ <b>Системна Панель Управління</b>\n\nОберіть директорію для роботи:', { parse_mode: 'HTML', ...getAdminMenu() }).catch(()=>{});
 });
 
-// 1. Модерація (Публікація на біржу)
 bot.action('admin_pub_list', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔');
     const { data: tasks } = await supabase.from('bounties').select('*').eq('status', 'pending_approval');
@@ -301,7 +305,6 @@ bot.action(/adm_rej_pub_(.+)/, async (ctx) => {
     await ctx.editMessageText('❌ <b>Завдання видалено з системи.</b>', { parse_mode: 'HTML' }).catch(()=>{});
 });
 
-// 2. Перевірка виконаних (Аудит)
 bot.action('admin_rev_list', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔');
     const { data: tasks } = await supabase.from('bounties').select('*').eq('status', 'review');
@@ -337,7 +340,6 @@ bot.action(/adm_rej_rev_(.+)/, async (ctx) => {
     try { await bot.telegram.sendMessage(bounty.executor_id, `⚠️ <b>Система:</b> Вашу роботу <b>${bounty.title}</b> не прийнято.\nБудь ласка, доопрацюйте технічне завдання.`, { parse_mode: 'HTML' }); } catch(e){}
 });
 
-// 3. Управління базою (Видалення будь-якого активного)
 bot.action('admin_man_list', async (ctx) => {
     if (ctx.from.id !== ADMIN_ID) return ctx.answerCbQuery('⛔');
     const { data: tasks } = await supabase.from('bounties').select('*').in('status', ['open', 'in_progress']);
@@ -361,10 +363,9 @@ bot.action(/adm_del_task_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// ЗАПУСК СЕРВЕРА (ІЗ ЗАХИСТОМ ВІД КОНФЛІКТІВ)
+// ЗАПУСК СЕРВЕРА
 // ==========================================
 
-// dropPendingUpdates: true гарантує, що при перезапуску на Render старі запити не створять конфлікту
 bot.launch({ dropPendingUpdates: true })
     .then(() => console.log('🤖 Pry.it (Enterprise Core) успішно запущено!'))
     .catch(err => console.error('Помилка запуску:', err));
@@ -372,7 +373,6 @@ bot.launch({ dropPendingUpdates: true })
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
-// Healthcheck порт для Render
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Pry.it API is active.');
