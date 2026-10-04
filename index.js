@@ -1468,15 +1468,23 @@ const healthServer = http.createServer((req, res) => {
   res.end('Pry.it bot is running.');
 });
 
-bot.launch()
-  .then(() => {
-    console.log('Pry.it запущено.');
-    healthServer.listen(port, '0.0.0.0', () => console.log('Health check слухає порт ' + port + '.'));
-  })
-  .catch((error) => {
-    console.error('Не вдалося запустити Telegram-бота:', error);
-    process.exitCode = 1;
-  });
+// Open Render's health port before waiting for Telegram's startup handshake.
+healthServer.on('error', (error) => {
+  console.error('Не вдалося запустити health server:', error);
+  process.exit(1);
+});
+
+healthServer.listen(port, '0.0.0.0', () => {
+  console.log('Health check слухає порт ' + port + '.');
+  bot.launch()
+    .then(() => {
+      console.log('Pry.it запущено.');
+    })
+    .catch((error) => {
+      console.error('Не вдалося запустити Telegram-бота:', error);
+      healthServer.close(() => process.exit(1));
+    });
+});
 
 process.once('SIGINT', () => {
   bot.stop('SIGINT');
